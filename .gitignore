@@ -1,3 +1,6 @@
+# secret files (like API keys)
+/secret/*
+
 # History files
 .Rhistory
 .Rapp.history
