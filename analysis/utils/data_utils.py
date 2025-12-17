@@ -37,6 +37,7 @@ def flatten_metadata(results: List[Dict]) -> pd.DataFrame:
             flat_item['download_url'] = opinion.get('download_url')
             flat_item['local_path'] = opinion.get('local_path')
 
+
             # Convert lists to comma-separated strings or counts
             if 'joined_by_ids' in opinion and opinion['joined_by_ids']:
                 flat_item['joined_by_ids'] = ','.join(
@@ -58,6 +59,8 @@ def flatten_metadata(results: List[Dict]) -> pd.DataFrame:
         flattened.append(flat_item)
 
     df = pd.DataFrame(flattened)
+    # drop the "snippet" column as it's totally unnecessary and just takes up space when you try to preview the dataframes
+    df = df.drop(columns=['snippet'], errors='ignore')
 
     # Convert date columns to datetime
     date_columns = ['date_filed', 'dateFiled']

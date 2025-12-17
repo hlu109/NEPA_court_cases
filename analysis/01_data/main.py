@@ -70,7 +70,7 @@ if __name__ == "__main__":
 
     df = search_and_download(
         query="\"National Environmental Policy Act\"",
-        max_results=20,
+        max_results=None,
         download_pdfs=True
     )
 

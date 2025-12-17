@@ -19,7 +19,8 @@ API_KEY_PATH = BASE_DIR / "secret" / "courtlistener_api_key.txt"
 with open(API_KEY_PATH) as f:
     API_KEY = f.read().strip()
 
-BASE_URL = "https://www.courtlistener.com/api/rest/v3"
+BASE_PDF_URL = "https://storage.courtlistener.com"
+BASE_API_URL = "https://www.courtlistener.com/api/rest/v3"
 
 # API Settings
 RESULTS_PER_PAGE = 20  # TODO: don't think we can specify this?

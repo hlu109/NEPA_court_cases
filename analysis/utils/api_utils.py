@@ -5,7 +5,7 @@ API interaction utilities for CourtListener
 import requests
 import time
 from typing import Dict, List, Optional, Any
-from analysis.utils.config import API_KEY, BASE_URL, REQUEST_DELAY, TIMEOUT
+from analysis.utils.config import API_KEY, BASE_API_URL, REQUEST_DELAY, TIMEOUT
 
 
 def _get_headers(api_key: str = API_KEY) -> Dict[str, str]:
@@ -36,9 +36,9 @@ def _make_request(
             JSON response as dictionary
     """
     # Build URL and avoid double slashes
-    url = f"{BASE_URL}{endpoint}"
+    url = f"{BASE_API_URL}{endpoint}"
     if not endpoint.startswith('/'):
-        url = f"{BASE_URL}/{endpoint}"
+        url = f"{BASE_API_URL}/{endpoint}"
 
     try:
         response = requests.get(
@@ -165,6 +165,7 @@ def download_opinion_pdf(download_url: str, save_path: str) -> bool:
         Returns:
             True if successful, False otherwise
     """
+    # TODO: replace download url with local url from CourListener API response
     try:
         response = requests.get(download_url, timeout=TIMEOUT)
         response.raise_for_status()

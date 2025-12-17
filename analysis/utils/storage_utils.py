@@ -8,7 +8,7 @@ import time
 from pathlib import Path
 from datetime import datetime
 from typing import List, Dict, Optional
-from analysis.utils.config import METADATA_DIR, TEXT_DIR, PDF_DIR, LOGS_DIR, REQUEST_DELAY
+from analysis.utils.config import METADATA_DIR, TEXT_DIR, PDF_DIR, LOGS_DIR, REQUEST_DELAY, BASE_PDF_URL
 from analysis.utils.api_utils import get_opinion_by_id, download_opinion_pdf
 
 
@@ -179,15 +179,13 @@ class DownloadLogger:
 
 
 def download_all_opinions(metadata: List[Dict],
-                          download_pdfs: bool = True,
-                          api_key: Optional[str] = None) -> DownloadLogger:
+                          download_pdfs: bool = True) -> DownloadLogger:
     """
     Download text and PDFs for all opinions in metadata
 
     Args:
         metadata: List of opinion metadata dictionaries
         download_pdfs: Whether to download PDFs (default True)
-        api_key: Optional API key override
 
     Returns:
         DownloadLogger with results
@@ -216,7 +214,7 @@ def download_all_opinions(metadata: List[Dict],
 
             # Save PDF if requested
             if download_pdfs and opinion_data.get('download_url'):
-                pdf_url = opinion_data['download_url']
+                pdf_url = f"{BASE_PDF_URL}/{opinion_data['local_path']}"
                 if download_opinion_pdf(pdf_url, PDF_DIR / f"opinion_{opinion_id}.pdf"):
                     logger.log_success(opinion_id, "Text and PDF saved")
                 else:
