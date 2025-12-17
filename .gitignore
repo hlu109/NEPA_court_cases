@@ -1,6 +1,8 @@
 # secret files (like API keys)
 /secret/*
 
+# data files 
+/data/*
 
 # ------------------------------------------------------------------------------
 # Python .gitignore template 
