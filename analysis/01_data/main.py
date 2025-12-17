@@ -4,7 +4,7 @@ Main workflow to download CourtListener cases.
 
 import sys
 from pathlib import Path
-from time import time
+from datetime import datetime
 import pandas as pd
 
 # Add project root to Python path
@@ -64,7 +64,7 @@ def search_and_download(query: str,
 
 if __name__ == "__main__":
     # add timer to see how long script takes
-    script_start_time = time.time()
+    script_start_time = datetime.now()
 
     config.setup_directories()
 
@@ -75,4 +75,4 @@ if __name__ == "__main__":
     )
 
     print(
-        f"Total script runtime: {time.time() - script_start_time:.2f} seconds")
+        f"Total script runtime: {datetime.now() - script_start_time:.2f} seconds")
