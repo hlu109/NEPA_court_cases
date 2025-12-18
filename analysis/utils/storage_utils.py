@@ -1,20 +1,17 @@
 """
-Storage and file I/O utilities
+Data processing, storage, and file I/O utilities
 """
 
 import json
 import csv
 import time
+import pandas as pd
+import warnings 
 from pathlib import Path
 from datetime import datetime
 from typing import List, Dict, Optional
-from analysis.utils.config import METADATA_DIR, TEXT_DIR, PDF_DIR, LOGS_DIR, REQUEST_DELAY, BASE_PDF_URL
-from analysis.utils.api_utils import get_opinion_by_id, download_opinion_pdf
-
-
-def get_timestamp() -> str:
-    """Get current timestamp string for filenames"""
-    return datetime.now().strftime("%Y%m%d_%H%M%S")
+from analysis.utils.config import METADATA_DIR, LOGS_DIR, REQUEST_DELAY, BASE_PDF_URL, CURR_OPINIONS_DIR, RUN_TIMESTAMP
+from analysis.utils.api_utils import get_opinion_by_id, get_cluster_by_id, download_opinion_pdf
 
 
 def save_metadata_csv(results: List[Dict],
@@ -30,7 +27,7 @@ def save_metadata_csv(results: List[Dict],
         Path to saved file
     """
     if not filename:
-        filename = f"opinions_metadata_{get_timestamp()}.csv"
+        filename = f"opinions_metadata_{RUN_TIMESTAMP}.csv"
 
     filepath = METADATA_DIR / filename
 
@@ -41,25 +38,11 @@ def save_metadata_csv(results: List[Dict],
         print("Warning: No results to save")
         return str(filepath)
 
-    # Get all unique keys across all results
-    all_keys = set()
-    for result in results:
-        all_keys.update(result.keys())
+    # Convert to flattened structure 
+    df = flatten_metadata(results)
 
     # Write CSV
-    with open(filepath, 'w', newline='', encoding='utf-8') as f:
-        writer = csv.DictWriter(f, fieldnames=sorted(all_keys))
-        writer.writeheader()
-
-        for result in results:
-            # Convert lists/dicts to JSON strings for CSV compatibility
-            row = {}
-            for key, value in result.items():
-                if isinstance(value, (list, dict)):
-                    row[key] = json.dumps(value)
-                else:
-                    row[key] = value
-            writer.writerow(row)
+    df.to_csv(filepath, index=False, quoting=csv.QUOTE_NONNUMERIC)
 
     print(f"Saved {len(results)} records to: {filepath}")
     return str(filepath)
@@ -78,7 +61,7 @@ def save_metadata_json(results: List[Dict],
         Path to saved file
     """
     if not filename:
-        filename = f"opinions_metadata_{get_timestamp()}.json"
+        filename = f"opinions_metadata_{RUN_TIMESTAMP}.json"
 
     filepath = METADATA_DIR / filename
     filepath.parent.mkdir(parents=True, exist_ok=True)
@@ -106,25 +89,21 @@ def load_metadata_json(filename: str) -> List[Dict]:
         return json.load(f)
 
 
-def save_opinion_text(opinion_id: int, text: str) -> str:
+def save_opinion_text(opinion_id: int, text: str, save_path) -> str:
     """
     Save opinion text to file
 
     Args:
         opinion_id: Opinion ID
-        text: Plain text content
+        text: HTML text content
 
     Returns:
         Path to saved file
     """
-    filename = f"opinion_{opinion_id}.txt"
-    filepath = TEXT_DIR / filename
-    filepath.parent.mkdir(parents=True, exist_ok=True)
-
-    with open(filepath, 'w', encoding='utf-8') as f:
+    with open(save_path, 'w', encoding='utf-8') as f:
         f.write(text)
 
-    return str(filepath)
+    return str(save_path)
 
 
 class DownloadLogger:
@@ -132,7 +111,7 @@ class DownloadLogger:
 
     def __init__(self, log_filename: Optional[str] = None):
         if not log_filename:
-            log_filename = f"download_log_{get_timestamp()}.txt"
+            log_filename = f"download_log_{RUN_TIMESTAMP}.txt"
 
         self.log_path = LOGS_DIR / log_filename
         self.log_path.parent.mkdir(parents=True, exist_ok=True)
@@ -194,6 +173,7 @@ def download_all_opinions(metadata: List[Dict],
 
     print(f"Starting download of {len(metadata)} opinions...")
     print(f"PDF download: {'enabled' if download_pdfs else 'disabled'}")
+    print(f"Saving to: {CURR_OPINIONS_DIR}")
 
     # print(len(metadata))
 
@@ -209,22 +189,44 @@ def download_all_opinions(metadata: List[Dict],
 
         print(f"[{i}/{len(metadata)}] Downloading opinion {opinion_id}...")
 
+        # Create opinion-specific directory
+        opinion_dir = CURR_OPINIONS_DIR / f"opinion_{opinion_id}"
+        opinion_dir.mkdir(parents=True, exist_ok=True)
+        print("opinion directory created:", opinion_dir)
+
         try:
             # Get full opinion data
             opinion_data = get_opinion_by_id(opinion_id)
 
-            # Save plain text
-            if opinion_data.get('plain_text'):
-                save_opinion_text(opinion_id, opinion_data['plain_text'])
+            # Save text (via HTML with citations field, which is recommended over plain text)
+            if opinion_data.get('html_with_citations'):
+                text = opinion_data['html_with_citations']
+                if text == "":
+                    warnings.warn(f"Empty 'html_with_citations' for opinion {opinion_id}")
+                html_path = opinion_dir / f"opinion_{opinion_id}.html"
+
+                save_opinion_text(opinion_id, text, html_path)
 
             # Save PDF if requested
-            if download_pdfs and opinion_data.get('download_url'):
-                pdf_url = f"{BASE_PDF_URL}/{opinion_data['local_path']}"
-                print(pdf_url)
-                if download_opinion_pdf(pdf_url, PDF_DIR / f"opinion_{opinion_id}.pdf"):
-                    logger.log_success(opinion_id, "Text and PDF saved")
+            if download_pdfs:
+                # get pdf url from results pdf_local_path or pdf_harvard_path
+                pdf_url = ""
+                if item.get('pdf_local_path'):
+                    pdf_url = f"{BASE_PDF_URL}/{item.get('pdf_local_path')}"
+                elif item.get('pdf_harvard_path'):
+                    # if there is no local pdf path, then check if the case was hosted on harvard's system 
+                    pdf_url = f"{BASE_PDF_URL}/{item['pdf_harvard_path']}"
                 else:
-                    logger.log_success(opinion_id, "Text saved (PDF failed)")
+                    warnings.warn(f"no local pdf path found and no harvard pdf path found for opinion {opinion_id}, skipping pdf download")
+                    logger.log_success(opinion_id, "Text saved but no PDF available")
+                
+                if pdf_url != "":
+                    print(pdf_url)
+                    pdf_path = opinion_dir / f"opinion_{opinion_id}.pdf"
+                    if download_opinion_pdf(pdf_url, pdf_path):
+                        logger.log_success(opinion_id, "Text and PDF saved")
+                    else:
+                        logger.log_success(opinion_id, "Text saved (PDF failed)")
             else:
                 logger.log_success(opinion_id, "Text saved")
 
@@ -232,7 +234,7 @@ def download_all_opinions(metadata: List[Dict],
 
         except Exception as e:
             logger.log_failure(opinion_id, str(e))
-            print(f"  ✗ Error: {e}")
+            print(f"  Error: {e}")
 
     logger.print_summary()
     return logger
@@ -260,5 +262,109 @@ def save_complete_dataset(results: List[Dict],
     if download_opinions:
         logger = download_all_opinions(results)
         saved_files['log'] = str(logger.log_path)
+        saved_files['run_dir'] = str(CURR_OPINIONS_DIR)
 
     return saved_files
+
+
+def flatten_metadata(results: List[Dict]) -> pd.DataFrame:
+    """
+    Flatten nested metadata structures for easier analysis
+
+    Args:
+        results: List of opinion dictionaries from API
+
+    Returns:
+        Pandas DataFrame with flattened data
+    """
+    flattened = []
+
+    for item in results:
+        flat_item = {}
+
+        # Copy simple fields
+        for key, value in item.items():
+            if not isinstance(value, (dict, list)):
+                flat_item[key] = value
+
+        # Flatten all the columns that are lists
+        if 'citation' in item and isinstance(item['citation'], list):
+            flat_item['citation'] = '; '.join(item['citation'])
+        if 'non_participating_judge_ids' in item and isinstance(item['non_participating_judge_ids'], list):
+            flat_item['non_participating_judge_ids'] = '; '.join(
+                map(str, item['non_participating_judge_ids']))
+        if 'panel_ids' in item and isinstance(item['panel_ids'], list):
+            flat_item['panel_ids'] = '; '.join(
+                map(str, item['panel_ids']))
+        if 'panel_names' in item and isinstance(item['panel_names'], list):
+            flat_item['panel_names'] = '; '.join(item['panel_names'])
+        if 'sibling_ids' in item and isinstance(item['sibling_ids'], list):
+            flat_item['sibling_ids'] = '; '.join(
+                map(str, item['sibling_ids']))
+
+
+        # Flatten the "meta" field which is a dictionary 
+        if 'meta' in item and isinstance(item['meta'], dict):
+            for meta_key, meta_value in item['meta'].items():
+                if meta_key == 'score' and isinstance(meta_value, dict):
+                    for score_key, score_value in meta_value.items():
+                        flat_item[f"meta_score_{score_key}"] = score_value
+                else:
+                    flat_item[f"meta_{meta_key}"] = meta_value
+                    # parse meta_score which is another nested dict 
+
+
+        # Handle nested 'opinions' field if it exists, which is a list of dicts 
+        # TODO: add handling for if there are multiple opinions
+        opinion = None
+        if 'opinions' in item and isinstance(item['opinions'], list):
+            if len(item['opinions']) > 1:
+                warnings.warn(f"Found multiple 'opinions' field for case {item.get('absolute_url')}")
+            opinion = item['opinions'][0]  # assuming first opinion
+        elif 'opinion' in item:
+            print("Found 'opinion' field of class:", type(item['opinion']))
+            if isinstance(item['opinion'], dict):
+                opinion = item['opinion']  # TODO check, but it seemed like there was a different data structure here if you only pulled the first page of results
+        if opinion is not None:
+            # Extract key opinion fields
+            flat_item['opinion_id'] = opinion.get('id')
+            flat_item['author_id'] = opinion.get('author_id')
+            flat_item['pdf_original_path'] = opinion.get('download_url')
+            # flat_item['pdf_local_path'] = opinion.get('local_path') # already handled when retrieving results
+            flat_item['per_curiam'] = opinion.get('per_curiam')
+            flat_item['snippet'] = opinion.get('snippet')
+            flat_item['opinion_type'] = opinion.get('type')
+
+            # Flatten lists
+            if 'joined_by_ids' in opinion and opinion['joined_by_ids']:
+                flat_item['joined_by_ids'] = '; '.join(
+                    map(str, opinion['joined_by_ids']))
+                flat_item['num_joined_by'] = len(opinion['joined_by_ids'])
+
+            if 'cites' in opinion and opinion['cites']:
+                flat_item['cites'] = '; '.join(
+                    map(str, opinion['cites']))
+                flat_item['num_citations'] = len(opinion['cites'])
+            else:
+                flat_item['num_citations'] = 0
+
+        # Handle 'cluster' field if it exists
+        if 'cluster' in item and isinstance(item['cluster'], dict):
+            cluster = item['cluster']
+            flat_item['cluster_id'] = cluster.get('id')
+            flat_item['case_name'] = cluster.get('case_name')
+            flat_item['date_filed'] = cluster.get('date_filed')
+
+        flattened.append(flat_item)
+
+    df = pd.DataFrame(flattened)
+    df = df.reindex(sorted(df.columns), axis=1) # rearrange columns in alphabetical order
+
+    # Convert date columns to datetime
+    date_columns = ['date_filed', 'dateFiled']
+    for col in date_columns:
+        if col in df.columns:
+            df[col] = pd.to_datetime(df[col], errors='coerce')
+
+    return df
+

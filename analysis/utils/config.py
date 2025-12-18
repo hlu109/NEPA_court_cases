@@ -3,6 +3,8 @@ Configuration file for CourtListener API project
 """
 
 from pathlib import Path
+from datetime import datetime
+
 
 
 # Directory Structure
@@ -19,9 +21,12 @@ else:
 
 DATA_DIR = BASE_DIR / "data"
 METADATA_DIR = DATA_DIR / "metadata"
-TEXT_DIR = DATA_DIR / "opinions" / "text"
-PDF_DIR = DATA_DIR / "opinions" / "pdf"
+OPINIONS_BASE_DIR = DATA_DIR / "opinions"
 LOGS_DIR = DATA_DIR / "logs"
+
+# Set global timestamp for use as file/run identifier
+RUN_TIMESTAMP = datetime.now().strftime("%Y%m%d_%H%M%S")
+CURR_OPINIONS_DIR = OPINIONS_BASE_DIR / f"run_{RUN_TIMESTAMP}"
 
 # API Configuration
 API_KEY_PATH = BASE_DIR / "secret" / "courtlistener_api_key.txt"
@@ -43,8 +48,8 @@ def setup_directories():
         BASE_DIR,
         DATA_DIR,
         METADATA_DIR,
-        TEXT_DIR,
-        PDF_DIR,
+        OPINIONS_BASE_DIR,
+        CURR_OPINIONS_DIR,
         LOGS_DIR
     ]
 

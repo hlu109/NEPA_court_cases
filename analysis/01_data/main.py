@@ -14,8 +14,7 @@ sys.path.insert(0, str(project_root))
 
 from analysis.utils import config
 from analysis.utils.api_utils import get_all_results
-from analysis.utils.storage_utils import save_complete_dataset
-from analysis.utils.data_utils import flatten_metadata
+from analysis.utils.storage_utils import save_complete_dataset, flatten_metadata
 
 
 def search_and_download(query: str,
@@ -74,13 +73,15 @@ if __name__ == "__main__":
     script_start_time = datetime.now()
 
     config.setup_directories()
-
+    
     df = search_and_download(
         query="\"National Environmental Policy Act\"",
         result_type="o",
         highlight="on",
         court="(ca1 OR ca2 OR ca3 OR ca4 OR ca5 OR ca6 OR ca7 OR ca8 OR ca9 OR ca10 OR ca11 OR cadc OR cafc OR scotus)",
-        max_results=3229, # 3229
+        # max_results=3229,
+        max_results=None,
+        # max_results=40,
         download_pdfs=True
     )
     # TODO: update to download pdfs in batches 
