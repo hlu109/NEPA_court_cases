@@ -27,9 +27,10 @@ def flatten_metadata(results: List[Dict]) -> pd.DataFrame:
             if not isinstance(value, (dict, list)):
                 flat_item[key] = value
 
-        # Handle nested 'opinion' field if it exists
-        if 'opinion' in item and isinstance(item['opinion'], dict):
-            opinion = item['opinion']
+        # Handle nested 'opinions' field if it exists
+        if 'opinions' in item and isinstance(item['opinions'], dict):
+            opinion = item['opinions'][0]  # assuming first opinion
+            # TODO: add handling for if there are 0 or multiple opinions
 
             # Extract key opinion fields
             flat_item['opinion_id'] = opinion.get('id')
@@ -59,8 +60,6 @@ def flatten_metadata(results: List[Dict]) -> pd.DataFrame:
         flattened.append(flat_item)
 
     df = pd.DataFrame(flattened)
-    # drop the "snippet" column as it's totally unnecessary and just takes up space when you try to preview the dataframes
-    df = df.drop(columns=['snippet'], errors='ignore')
 
     # Convert date columns to datetime
     date_columns = ['date_filed', 'dateFiled']
