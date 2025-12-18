@@ -6,8 +6,17 @@ from pathlib import Path
 
 
 # Directory Structure
-BASE_DIR = Path(
-    "C:/Users/hl2266/YLS Dropbox/Hannah Lu/Judge Highway NEPA Costs/Code/NEPA_court_cases")
+loc = "yale_server"
+# loc = "local"
+
+if loc == "local":
+    BASE_DIR = Path(
+        "C:/Users/hl2266/YLS Dropbox/Hannah Lu/Judge Highway NEPA Costs/Code/NEPA_court_cases")
+elif loc == "yale_server":
+    BASE_DIR = Path("/home/hl2266/project_pi_zdl3/hl2266/code/NEPA_court_cases")
+else:
+    raise ValueError("Invalid location specified")
+
 DATA_DIR = BASE_DIR / "data"
 METADATA_DIR = DATA_DIR / "metadata"
 TEXT_DIR = DATA_DIR / "opinions" / "text"
