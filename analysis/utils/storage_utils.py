@@ -195,8 +195,13 @@ def download_all_opinions(metadata: List[Dict],
     print(f"Starting download of {len(metadata)} opinions...")
     print(f"PDF download: {'enabled' if download_pdfs else 'disabled'}")
 
+    # print(len(metadata))
+
+    # for metadata in results:
+
     for i, item in enumerate(metadata, 1):
-        opinion_id = item.get('id')
+        # print(item)
+        opinion_id = item.get('opinions')[0].get('id')
 
         if not opinion_id:
             print(f"Skipping item {i}: no opinion ID found")
@@ -215,6 +220,7 @@ def download_all_opinions(metadata: List[Dict],
             # Save PDF if requested
             if download_pdfs and opinion_data.get('download_url'):
                 pdf_url = f"{BASE_PDF_URL}/{opinion_data['local_path']}"
+                print(pdf_url)
                 if download_opinion_pdf(pdf_url, PDF_DIR / f"opinion_{opinion_id}.pdf"):
                     logger.log_success(opinion_id, "Text and PDF saved")
                 else:
