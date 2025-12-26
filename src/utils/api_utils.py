@@ -5,7 +5,7 @@ API interaction utilities for CourtListener
 import requests
 import time
 from typing import Dict, List, Optional, Any
-from analysis.utils.config import API_KEY, BASE_API_URL, REQUEST_DELAY, TIMEOUT
+from src.utils.config import API_KEY, BASE_API_URL, REQUEST_DELAY, TIMEOUT
 
 
 def _get_headers(api_key: str = API_KEY) -> Dict[str, str]:

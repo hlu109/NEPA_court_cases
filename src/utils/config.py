@@ -15,7 +15,7 @@ PDF_DIR = DATA_DIR / "opinions" / "pdf"
 LOGS_DIR = DATA_DIR / "logs"
 
 # API Configuration
-API_KEY_PATH = BASE_DIR / "secret" / "courtlistener_api_key.txt"
+API_KEY_PATH = BASE_DIR / "secret" / "COURTLISTENER_API_KEY.txt"
 with open(API_KEY_PATH) as f:
     API_KEY = f.read().strip()
 

@@ -12,11 +12,9 @@ import pandas as pd
 project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
-from analysis.utils import config
-from analysis.utils.api_utils import get_all_results
-from analysis.utils.storage_utils import save_complete_dataset
-from analysis.utils.data_utils import flatten_metadata
-
+from src.utils import config
+from src.utils.api_utils import get_all_results
+from src.utils.courtlistener_utils import save_complete_dataset, flatten_metadata
 
 def search_and_download(query: str,
                         max_results: Optional[int] = None,
@@ -64,7 +62,7 @@ def search_and_download(query: str,
     for file_type, path in saved_files.items():
         print(f"  - {file_type}: {path}")
 
-    # Return flattened DataFrame for immediate analysis
+    # Return flattened DataFrame for immediate src
     df = flatten_metadata(results)
     return df
 
