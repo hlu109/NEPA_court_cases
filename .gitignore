@@ -4,6 +4,12 @@
 # data files 
 /data/*
 
+# random Windows files 
+desktop.ini 
+
+# random Mac files 
+.DS_Store
+
 # ------------------------------------------------------------------------------
 # Python .gitignore template 
 
