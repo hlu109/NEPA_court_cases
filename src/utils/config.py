@@ -3,16 +3,30 @@ Configuration file for CourtListener API project
 """
 
 from pathlib import Path
+from datetime import datetime
+
 
 
 # Directory Structure
-BASE_DIR = Path(
-    "C:/Users/hl2266/YLS Dropbox/Hannah Lu/Judge Highway NEPA Costs/Code/NEPA_court_cases")
+loc = "yale_server"
+# loc = "local"
+
+if loc == "local":
+    BASE_DIR = Path(
+        "C:/Users/hl2266/YLS Dropbox/Hannah Lu/Judge Highway NEPA Costs/Code/NEPA_court_cases")
+elif loc == "yale_server":
+    BASE_DIR = Path("/home/hl2266/project_pi_zdl3/hl2266/code/NEPA_court_cases")
+else:
+    raise ValueError("Invalid location specified")
+
 DATA_DIR = BASE_DIR / "data"
 METADATA_DIR = DATA_DIR / "metadata"
-TEXT_DIR = DATA_DIR / "opinions" / "text"
-PDF_DIR = DATA_DIR / "opinions" / "pdf"
+OPINIONS_BASE_DIR = DATA_DIR / "opinions"
 LOGS_DIR = DATA_DIR / "logs"
+
+# Set global timestamp for use as file/run identifier
+RUN_TIMESTAMP = datetime.now().strftime("%Y%m%d_%H%M%S")
+CURR_OPINIONS_DIR = OPINIONS_BASE_DIR / f"run_{RUN_TIMESTAMP}"
 
 # API Configuration
 API_KEY_PATH = BASE_DIR / "secret" / "COURTLISTENER_API_KEY.txt"
@@ -34,8 +48,8 @@ def setup_directories():
         BASE_DIR,
         DATA_DIR,
         METADATA_DIR,
-        TEXT_DIR,
-        PDF_DIR,
+        OPINIONS_BASE_DIR,
+        CURR_OPINIONS_DIR,
         LOGS_DIR
     ]
 

@@ -42,7 +42,6 @@ def _make_request(
     # Use full URL if provided, otherwise build from endpoint
     if full_url:
         url = full_url
-        print("Using full URL:", url)
     else:
         # Build URL and avoid double slashes
         url = f"{BASE_API_URL}{endpoint}"
@@ -56,7 +55,7 @@ def _make_request(
             params=params if not full_url else None,  # Don't use params with full_url
             timeout=TIMEOUT
         )
-        print("Request URL:", response.url)
+        # print("Request URL:", response.url)
         response.raise_for_status()
         return response.json()
 
@@ -126,6 +125,20 @@ def get_opinion_by_id(opinion_id: int, api_key: str = API_KEY) -> Dict:
     params = {'format': 'json'}
     return _make_request(endpoint=endpoint, params=params, api_key=api_key)
 
+def get_cluster_by_id(cluster_id: int, api_key: str = API_KEY) -> Dict:
+    """
+    Retrieve a specific cluster by ID
+
+    Args:
+        cluster_id: Cluster ID number
+        api_key: CourtListener API key
+
+    Returns:
+        Dictionary with cluster data
+    """
+    endpoint = f'/clusters/{cluster_id}/'
+    params = {'format': 'json'}
+    return _make_request(endpoint=endpoint, params=params, api_key=api_key)
 
 def get_all_results(query: str,
                     max_results: Optional[int] = None,
@@ -181,6 +194,19 @@ def get_all_results(query: str,
         time.sleep(REQUEST_DELAY)
 
     print(f"Total results fetched: {len(all_results)}")
+
+    # add a column to check if html_with_citations is populated; if local_path pdf link is available; if harvard pdf link is available 
+    for result in all_results:
+        opinion_metadata = result.get('opinions', [{}])[0]
+        opinion_id = opinion_metadata.get('id')
+        cluster_id = result.get('cluster_id')
+        opinion = get_opinion_by_id(opinion_id, api_key)
+        cluster = get_cluster_by_id(cluster_id, api_key)
+
+        result['has_html_with_citations'] = bool(opinion.get('html_with_citations')) & (opinion.get('html_with_citations') != "")
+        result['pdf_local_path'] = opinion.get('local_path') 
+        result['pdf_harvard_path'] = cluster.get('filepath_pdf_harvard') 
+
     return all_results
 
 
