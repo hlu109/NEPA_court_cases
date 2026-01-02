@@ -12,8 +12,9 @@ from pathlib import Path
 # Define the model you are going to use (flash is free with 1,500 requests per day)
 # gemini_model_id = "gemini-2.0-flash"
 # gemini_model_id = "gemini-2.5-flash"
-# gemini_model_id = "gemini-2.5-pro"
-gemini_model_id = "gemini-3-pro-preview"
+gemini_model_id = "gemini-2.5-pro"
+# gemini_model_id = "gemini-3-flash-preview"
+# gemini_model_id = "gemini-3-pro-preview"
 
 
 # Set File Paths -------------------------------------------
@@ -85,7 +86,7 @@ def log_config(log_dir=log_dir):
     # Save text of gemini prompt--------
     with open(prompt_text_path, "r") as file:
         prompt_text = file.read()
-    with open(os.path.join(log_dir, "prompt_text.txt"), "a",
+    with open(os.path.join(log_dir, f"prompt_text_{identifier}.txt"), "a",
               encoding="utf-8") as file:
         file.write(prompt_text)
 

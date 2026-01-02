@@ -23,7 +23,7 @@ def log_config(log_dir, config):
     # Save text of gemini prompt--------
     with open(config.prompt_text_path, "r") as file:
         prompt_text = file.read()
-    with open(os.path.join(log_dir, "prompt_text.txt"), "a",
+    with open(os.path.join(log_dir, f"prompt_text_{config.identifier}.txt"), "a",
               encoding="utf-8") as file:
         file.write(prompt_text)
 
