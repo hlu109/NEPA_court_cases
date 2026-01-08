@@ -41,28 +41,6 @@ data/opinions/run_20251218_150652/
       ├── opinion_1034773.txt
       └── opinion_1034773.pdf
 ```
-
-## Usage
-
-### Running the Main Download Script
-
-```bash
-python analysis/01_data/main.py
-```
-
-This will:
-1. Create a new timestamped run directory
-2. Search for NEPA-related opinions on CourtListener
-3. Download opinion metadata, text, and PDFs
-4. Save logs and return a flattened DataFrame
-
-### Configuration
-
-Edit `analysis/utils/config.py` to set:
-- Base directory paths
-- API settings (timeout, delay between requests)
-- Search parameters
-
-### API Key
+## API Key
 
 You need a CourtListener API key stored in `secret/courtlistener_api_key.txt`.
