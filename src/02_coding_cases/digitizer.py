@@ -3,7 +3,7 @@ import time
 import requests
 import os
 import pandas as pd
-from PagesLib.Case import case_to_dataframe, cases_to_dataframe, CaseSimple
+from PagesLib.Case import case_to_dataframe
 # ------------------------------------------------------------------------------
 # -- Define functions ----------------------------------------------------------
 # ------------------------------------------------------------------------------

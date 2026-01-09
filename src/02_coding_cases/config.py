@@ -3,6 +3,8 @@ from datetime import datetime
 from PagesLib.Case import CaseSimple
 from pathlib import Path
 
+# TODO: merge this config with the main config in utils/config.py
+
 # ------------------------------------------------------------------------------
 # SET PARAMETERS ---------------------------------------------------------------
 # ------------------------------------------------------------------------------

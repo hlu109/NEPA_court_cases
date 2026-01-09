@@ -8,12 +8,12 @@ from datetime import datetime
 
 
 # Directory Structure
-loc = "yale_server"
-# loc = "local"
+# loc = "yale_server"
+loc = "local"
 
 if loc == "local":
     BASE_DIR = Path(
-        "C:/Users/hl2266/YLS Dropbox/Hannah Lu/Judge Highway NEPA Costs/Code/NEPA_court_cases")
+        "C:/Users/hl2266/YLS Dropbox/Hannah Lu/NEPA Court Cases/Code/NEPA_court_cases")
 elif loc == "yale_server":
     BASE_DIR = Path("/home/hl2266/project_pi_zdl3/hl2266/code/NEPA_court_cases")
 else:
