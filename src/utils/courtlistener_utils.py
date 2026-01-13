@@ -2,6 +2,8 @@
 CourtListener Data Utilities 
 """
 
+import sys
+import warnings
 import json
 import csv
 import time
@@ -9,48 +11,160 @@ import pandas as pd
 from pathlib import Path
 from datetime import datetime
 from typing import List, Dict, Optional
-from src.utils.api_utils import get_opinion_by_id, download_opinion_pdf
-from src.utils.config import METADATA_DIR, LOGS_DIR, REQUEST_DELAY, BASE_PDF_URL, CURR_OPINIONS_DIR, RUN_TIMESTAMP
-from src.utils.api_utils import get_opinion_by_id, get_cluster_by_id, download_opinion_pdf
+import requests
+
+from src.utils.api_utils import _make_request
+from src.utils.config import RUN_DIR, OPINIONS_BASE_DIR, BASE_PDF_URL, CURR_OPINIONS_DIR, TIMEOUT, API_KEY, REQUEST_DELAY
+from src.utils.logger import get_logger
+
+# TODO: double check pdf paths
 
 
-def get_timestamp() -> str:
-    """Get current timestamp string for filenames"""
-    return datetime.now().strftime("%Y%m%d_%H%M%S")
-import warnings 
+def get_search_cases(query: str,
+                     result_type: str = 'o',
+                     api_key: str = API_KEY,
+                     highlight: Optional[str] = None,
+                     court: Optional[str] = None) -> Dict:
+    """ Make request to Search API for court cases. 
 
-def save_metadata_csv(results: List[Dict],
-                      filename: Optional[str] = None) -> str:
+        Args:
+            query: Search query text
+            result_type: Type of search. Options:
+                * "o": Case law opinion clusters with nested Opinion documents.
+                * "r": List of Federal cases (dockets) with up to three nested 
+                        documents.
+                * "rd": Federal filing documents from PACER.
+                * "d": Federal cases (dockets) from PACER.
+                * "p": Judges.
+                * "oa": Oral argument audio files.
+            api_key: CourtListener API key
+            highlight: Optional highlight parameter for search results. 
+                Use "on" or "all" to enable highlighting of search terms in results.
+            court: Optional court code filter (e.g., 'ca9', 'ca2')
+
+        Returns:
+            Dictionary with search results
     """
-    Save metadata to CSV file
+    params = {
+        'q': query,
+        'type': result_type,
+        'format': 'json'
+    }
+    if highlight is not None:
+        params['highlight'] = highlight
+
+    if court is not None:
+        params['court'] = court
+
+    return _make_request('/search/', params=params, api_key=api_key)
+
+
+def get_opinion_by_id(opinion_id: int, api_key: str = API_KEY) -> Dict:
+    """
+    Retrieve a specific opinion by ID
 
     Args:
-        results: List of opinion dictionaries
-        filename: Optional custom filename (will auto-generate if None)
+        opinion_id: Opinion ID number
+        api_key: CourtListener API key
 
     Returns:
-        Path to saved file
+        Dictionary with opinion data
     """
-    if not filename:
-        filename = f"opinions_metadata_{RUN_TIMESTAMP}.csv"
+    endpoint = f'/opinions/{opinion_id}/'
+    params = {'format': 'json'}
+    return _make_request(endpoint=endpoint, params=params, api_key=api_key)
 
-    filepath = METADATA_DIR / filename
 
-    # Ensure directory exists
-    filepath.parent.mkdir(parents=True, exist_ok=True)
+def get_cluster_by_id(cluster_id: int, api_key: str = API_KEY) -> Dict:
+    """
+    Retrieve a specific cluster by ID
 
-    if not results:
-        print("Warning: No results to save")
-        return str(filepath)
+    Args:
+        cluster_id: Cluster ID number
+        api_key: CourtListener API key
 
-    # Convert to flattened structure 
-    df = flatten_metadata(results)
+    Returns:
+        Dictionary with cluster data
+    """
+    endpoint = f'/clusters/{cluster_id}/'
+    params = {'format': 'json'}
+    return _make_request(endpoint=endpoint, params=params, api_key=api_key)
 
-    # Write CSV
-    df.to_csv(filepath, index=False, quoting=csv.QUOTE_NONNUMERIC)
 
-    print(f"Saved {len(results)} records to: {filepath}")
-    return str(filepath)
+def get_docket_by_id(docket_id: int, api_key: str = API_KEY) -> Dict:
+    """
+    Retrieve a specific docket by ID
+
+    Args:
+        docket_id: Docket ID number
+        api_key: CourtListener API key
+
+    Returns:
+        Dictionary with docket data
+    """
+    endpoint = f'/dockets/{docket_id}/'
+    params = {'format': 'json'}
+    return _make_request(endpoint=endpoint, params=params, api_key=api_key)
+
+
+def get_all_results(query: str,
+                    max_results: Optional[int] = None,
+                    result_type: str = 'o',
+                    api_key: str = API_KEY,
+                    highlight: Optional[str] = None,
+                    court: Optional[str] = None,
+                    **kwargs) -> List[Dict]:
+    """ Fetch all pages of results for a query. 
+
+        Args:
+            query: Search query
+            max_results: Maximum number of results to fetch (None = all)
+            result_type: Type of search (see get_search_cases() function for options)
+            api_key: CourtListener API key
+            highlight: Optional highlight parameter for search results.
+                Use "on" to enable highlighting of search terms in result snippet.
+            court: Optional court code filter (e.g., 'ca9', 'ca2')
+            **kwargs: Additional search parameters (will be added to params)
+
+        Returns:
+            List of all results across pages
+    """
+    all_results = []
+    page = 1
+    next_url = None
+
+    while True:
+        print(f"Fetching page {page}...")
+
+        # Use next_url if available, otherwise make initial request
+        if next_url is not None:
+            response = _make_request(
+                endpoint='', params=None, api_key=api_key, full_url=next_url)
+        else:
+            response = get_search_cases(query, result_type=result_type,
+                                        api_key=api_key, highlight=highlight,
+                                        court=court)
+        results = response.get('results', [])
+        all_results.extend(results)
+
+        # Check stopping conditions
+        next_url = response.get('next')
+        if not next_url:
+            print(f"Reached end at page {page}")
+            break
+
+        if max_results and len(all_results) >= max_results:
+            all_results = all_results[:max_results]
+            print(f"Reached max_results limit: {max_results}")
+            break
+
+        page += 1
+        time.sleep(REQUEST_DELAY)
+
+    logger = get_logger()
+    logger.info(f"Total results fetched: {len(all_results)}")
+
+    return all_results
 
 
 def save_metadata_json(results: List[Dict],
@@ -65,17 +179,23 @@ def save_metadata_json(results: List[Dict],
     Returns:
         Path to saved file
     """
-    if not filename:
-        filename = f"opinions_metadata_{RUN_TIMESTAMP}.json"
+    logger = get_logger()
 
-    filepath = METADATA_DIR / filename
+    if not filename:
+        filename = "complete_metadata.json"
+
+    filepath = RUN_DIR / filename
     filepath.parent.mkdir(parents=True, exist_ok=True)
 
-    with open(filepath, 'w', encoding='utf-8') as f:
-        json.dump(results, f, indent=2, ensure_ascii=False)
-
-    print(f"Saved {len(results)} records to: {filepath}")
-    return str(filepath)
+    try:
+        with open(filepath, 'w', encoding='utf-8') as f:
+            json.dump(results, f, indent=2, ensure_ascii=False)
+        logger.info(f"Saved {len(results)} records to: {filepath}")
+        return str(filepath)
+    except Exception as e:
+        logger.error(f"Error saving metadata JSON",
+                     exception=e, filename=filename)
+        raise
 
 
 def load_metadata_json(filename: str) -> List[Dict]:
@@ -83,216 +203,433 @@ def load_metadata_json(filename: str) -> List[Dict]:
     Load metadata from JSON file
 
     Args:
-        filename: Name of JSON file in metadata directory
+        filename: Name of JSON file in run directory
 
     Returns:
         List of opinion dictionaries
     """
-    filepath = METADATA_DIR / filename
+    logger = get_logger()
+    filepath = RUN_DIR / filename
 
-    with open(filepath, 'r', encoding='utf-8') as f:
-        return json.load(f)
+    try:
+        with open(filepath, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        logger.info(f"Loaded metadata from: {filepath}")
+        return data
+    except FileNotFoundError as e:
+        logger.error(f"Metadata file not found",
+                     exception=e, filename=filename)
+        raise
+    except json.JSONDecodeError as e:
+        logger.error(f"Error parsing JSON file",
+                     exception=e, filename=filename)
+        raise
+    except Exception as e:
+        logger.error(f"Error loading metadata JSON",
+                     exception=e, filename=filename)
+        raise
 
 
-def save_opinion_text(opinion_id: int, text: str, save_path) -> str:
+def download_opinion_pdf(download_url: str, save_path: str) -> bool:
+    """ Download opinion PDF from URL.
+
+        Args:
+            download_url: URL to PDF
+            save_path: Local path to save PDF
+
+        Returns:
+            True if successful, False otherwise
+    """
+    # TODO: replace download url with local url from CourListener API response
+    logger = get_logger()
+    try:
+        logger.debug(
+            f"Downloading PDF from: {download_url}", save_path=str(save_path))
+        response = requests.get(download_url, timeout=TIMEOUT)
+        response.raise_for_status()
+
+        with open(save_path, 'wb') as f:
+            f.write(response.content)
+        logger.info(f"PDF saved to {save_path}")
+        return True
+
+    except requests.exceptions.HTTPError as e:
+        logger.error(f"HTTP error downloading PDF", exception=e,
+                     download_url=download_url, save_path=str(save_path))
+        return False
+    except requests.exceptions.Timeout as e:
+        logger.error(f"Timeout downloading PDF", exception=e,
+                     download_url=download_url, save_path=str(save_path))
+        return False
+    except Exception as e:
+        logger.error(f"Failed to download PDF", exception=e,
+                     download_url=download_url, save_path=str(save_path))
+        return False
+
+
+def download_opinion_html(opinion_id: int, text: str, save_path) -> str:
     """
     Save opinion text to file
 
     Args:
         opinion_id: Opinion ID
         text: HTML text content
+        save_path: Path to save HTML file
 
     Returns:
         Path to saved file
     """
-    with open(save_path, 'w', encoding='utf-8') as f:
-        f.write(text)
+    logger = get_logger()
 
-    return str(save_path)
-
-
-class DownloadLogger:
-    """Logger for tracking download progress and errors"""
-
-    def __init__(self, log_filename: Optional[str] = None):
-        if not log_filename:
-            log_filename = f"download_log_{RUN_TIMESTAMP}.txt"
-
-        self.log_path = LOGS_DIR / log_filename
-        self.log_path.parent.mkdir(parents=True, exist_ok=True)
-
-        self.successful = 0
-        self.failed = 0
-        self.errors = []
-
-    def log_success(self, opinion_id: int, message: str = ""):
-        """Log successful download"""
-        self.successful += 1
-        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        log_entry = f"[{timestamp}] SUCCESS: Opinion {opinion_id}"
-        if message:
-            log_entry += f" - {message}"
-
-        with open(self.log_path, 'a', encoding='utf-8') as f:
-            f.write(log_entry + "\n")
-
-    def log_failure(self, opinion_id: int, error: str):
-        """Log failed download"""
-        self.failed += 1
-        self.errors.append((opinion_id, error))
-        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        log_entry = f"[{timestamp}] FAILED: Opinion {opinion_id} - {error}"
-
-        with open(self.log_path, 'a', encoding='utf-8') as f:
-            f.write(log_entry + "\n")
-
-    def print_summary(self):
-        """Print download summary"""
-        print("\n" + "="*50)
-        print("DOWNLOAD SUMMARY")
-        print("="*50)
-        print(f"Successful: {self.successful}")
-        print(f"Failed: {self.failed}")
-        print(f"Total: {self.successful + self.failed}")
-        print(f"Log saved to: {self.log_path}")
-
-        if self.errors:
-            print(f"\nFirst 5 errors:")
-            for opinion_id, error in self.errors[:5]:
-                print(f"  - Opinion {opinion_id}: {error}")
+    try:
+        with open(save_path, 'w', encoding='utf-8') as f:
+            f.write(text)
+        logger.debug(
+            f"Saved opinion text to: {save_path}", opinion_id=opinion_id)
+        return str(save_path)
+    except Exception as e:
+        logger.error(f"Error saving opinion text", exception=e,
+                     opinion_id=opinion_id, save_path=str(save_path))
+        raise
 
 
-def download_all_opinions(metadata: List[Dict],
-                          download_pdfs: bool = True) -> DownloadLogger:
+# TODO: refactor this function and download_all_opinions since lots of duplicate code
+def download_opinions_from_csv(csv_path: str,
+                               opinion_id_column: str = 'opinion_id',
+                               output_dir: Optional[Path] = None,
+                               existing_downloads_dir: Optional[Path] = None):
     """
-    Download text and PDFs for all opinions in metadata
+    Download opinions from a CSV file, skipping already-downloaded ones
 
     Args:
-        metadata: List of opinion metadata dictionaries
-        download_pdfs: Whether to download PDFs (default True)
-
-    Returns:
-        DownloadLogger with results
+        csv_path: Path to CSV file containing opinion IDs
+        opinion_id_column: Name of column containing opinion IDs
+        output_dir: Directory to save new downloads (defaults to new timestamped folder)
+        existing_downloads_dir: Directory to check for existing downloads (optional)
     """
-    logger = DownloadLogger()
+    logger = get_logger()
 
-    print(f"Starting download of {len(metadata)} opinions...")
-    print(f"PDF download: {'enabled' if download_pdfs else 'disabled'}")
-    print(f"Saving to: {CURR_OPINIONS_DIR}")
+    try:
+        # Read CSV
+        df = pd.read_csv(csv_path)
+        logger.info(f"Reading CSV file: {csv_path}")
 
-    # print(len(metadata))
+        if opinion_id_column not in df.columns:
+            error_msg = f"Column '{opinion_id_column}' not found in CSV. Available columns: {df.columns.tolist()}"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
 
-    # for metadata in results:
+        opinion_ids = df[opinion_id_column].dropna().unique().tolist()
+        logger.info(f"Found {len(opinion_ids)} unique opinion IDs in CSV")
 
-    for i, item in enumerate(metadata, 1):
-        # print(item)
-        opinion_id = item.get('opinions')[0].get('id')
+        # Set up output directory
+        if output_dir is None:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            output_dir = OPINIONS_BASE_DIR / f"download_{timestamp}"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        logger.info(f"Output directory: {output_dir}")
 
-        if not opinion_id:
-            print(f"Skipping item {i}: no opinion ID found")
-            continue
+        # Check for existing downloads
+        already_downloaded = set()
+        if existing_downloads_dir and existing_downloads_dir.exists():
+            logger.info(
+                f"Checking for existing downloads in: {existing_downloads_dir}")
+            for opinion_dir in existing_downloads_dir.glob("opinion_*"):
+                try:
+                    opinion_id = int(opinion_dir.name.split("_")[1])
+                    already_downloaded.add(opinion_id)
+                except (ValueError, IndexError) as e:
+                    logger.warning(
+                        f"Could not parse opinion ID from directory: {opinion_dir.name}", exception=e)
+                    continue
+            logger.info(
+                f"Found {len(already_downloaded)} already downloaded opinions")
 
-        print(f"[{i}/{len(metadata)}] Downloading opinion {opinion_id}...")
+        # Filter to only new downloads
+        opinions_to_download = [
+            oid for oid in opinion_ids if oid not in already_downloaded]
+        logger.info(f"Will download {len(opinions_to_download)} new opinions")
 
-        # Create opinion-specific directory
-        opinion_dir = CURR_OPINIONS_DIR / f"opinion_{opinion_id}"
-        opinion_dir.mkdir(parents=True, exist_ok=True)
-        print("opinion directory created:", opinion_dir)
+        for i, opinion_id in enumerate(opinions_to_download, 1):
+            logger.info(
+                f"[{i}/{len(opinions_to_download)}] Downloading opinion {opinion_id}...")
 
-        try:
-            # Get full opinion data
-            opinion_data = get_opinion_by_id(opinion_id)
+            # Create opinion-specific directory
+            opinion_dir = output_dir / f"opinion_{opinion_id}"
+            opinion_dir.mkdir(parents=True, exist_ok=True)
 
-            # Save text (via HTML with citations field, which is recommended over plain text)
-            if opinion_data.get('html_with_citations'):
-                text = opinion_data['html_with_citations']
-                if text == "":
-                    warnings.warn(f"Empty 'html_with_citations' for opinion {opinion_id}")
-                html_path = opinion_dir / f"opinion_{opinion_id}.html"
+            try:
+                # Get full opinion data
+                opinion_data = get_opinion_by_id(opinion_id)
 
-                save_opinion_text(opinion_id, text, html_path)
+                # Save HTML text
+                html_saved = False
+                if opinion_data.get('html_with_citations'):
+                    text = opinion_data['html_with_citations']
+                    if text == "":
+                        logger.warning(
+                            f"Empty 'html_with_citations' for opinion {opinion_id}", opinion_id=opinion_id)
+                    else:
+                        html_path = opinion_dir / f"opinion_{opinion_id}.html"
+                        download_opinion_html(opinion_id, text, html_path)
+                        html_saved = True
 
-            # Save PDF if requested
-            if download_pdfs:
-                # get pdf url from results pdf_local_path or pdf_harvard_path
-                pdf_url = ""
-                if item.get('pdf_local_path'):
-                    pdf_url = f"{BASE_PDF_URL}/{item.get('pdf_local_path')}"
-                elif item.get('pdf_harvard_path'):
-                    # if there is no local pdf path, then check if the case was hosted on harvard's system 
-                    pdf_url = f"{BASE_PDF_URL}/{item['pdf_harvard_path']}"
-                else:
-                    warnings.warn(f"no local pdf path found and no harvard pdf path found for opinion {opinion_id}, skipping pdf download")
-                    logger.log_success(opinion_id, "Text saved but no PDF available")
-                
-                if pdf_url != "":
-                    print(pdf_url)
+                # Save PDF
+                pdf_url = None
+                if opinion_data.get('local_path'):
+                    pdf_url = f"{BASE_PDF_URL}/{opinion_data['local_path']}"
+                elif opinion_data.get('download_url'):
+                    pdf_url = opinion_data['download_url']
+
+                pdf_saved = False
+                if pdf_url:
                     pdf_path = opinion_dir / f"opinion_{opinion_id}.pdf"
                     if download_opinion_pdf(pdf_url, pdf_path):
-                        logger.log_success(opinion_id, "Text and PDF saved")
+                        pdf_saved = True
+
+                # Log success message based on what was saved
+                if html_saved and pdf_saved:
+                    logger.log_download_success(
+                        opinion_id, "HTML and PDF saved")
+                elif html_saved:
+                    if pdf_url is None:
+                        logger.log_download_success(
+                            opinion_id, "HTML saved (no PDF available)")
                     else:
-                        logger.log_success(opinion_id, "Text saved (PDF failed)")
-            else:
-                logger.log_success(opinion_id, "Text saved")
+                        logger.log_download_success(
+                            opinion_id, "HTML saved (PDF failed)")
+                else:
+                    logger.warning(
+                        f"No HTML content available for opinion {opinion_id}", opinion_id=opinion_id)
 
-            time.sleep(REQUEST_DELAY)
+                time.sleep(REQUEST_DELAY)
 
+            except Exception as e:
+                logger.log_download_failure(opinion_id, str(e), exception=e)
+
+        logger.info(f"Downloads saved to: {output_dir}")
+
+    except Exception as e:
+        logger.error(f"Error in download_opinions_from_csv",
+                     exception=e, csv_path=csv_path)
+        raise
+
+
+def download_all_opinions(metadata: List[Dict]):
+    """
+    Download HTML and PDFs for all opinions in metadata
+
+    Args:
+        metadata: List of opinion cluster objects # TODO: fix this to list of opinion objects
+    """
+    logger = get_logger()
+
+    logger.info(f"Starting download of {len(metadata)} opinions...")
+    logger.info(f"Saving to: {CURR_OPINIONS_DIR}")
+
+    for i, item in enumerate(metadata, 1):
+        try:
+            opinion_id = item.get('opinions')[0].get('id')
+
+            if not opinion_id:
+                logger.warning(
+                    f"Skipping item {i}: no opinion ID found", item_index=i)
+                continue
+
+            logger.info(
+                f"[{i}/{len(metadata)}] Downloading opinion {opinion_id}...")
+
+            # Create opinion-specific directory
+            opinion_dir = CURR_OPINIONS_DIR / f"opinion_{opinion_id}"
+            opinion_dir.mkdir(parents=True, exist_ok=True)
+            logger.debug(
+                f"Opinion directory created: {opinion_dir}", opinion_id=opinion_id)
+
+            try:
+                # Get full opinion data
+                opinion_data = get_opinion_by_id(opinion_id)
+
+                # Save HTML text (via HTML with citations field, which is recommended over plain text)
+                html_saved = False
+                if opinion_data.get('html_with_citations'):
+                    text = opinion_data['html_with_citations']
+                    if text == "":
+                        logger.warning(
+                            f"Empty 'html_with_citations' for opinion {opinion_id}", opinion_id=opinion_id)
+                    else:
+                        html_path = opinion_dir / f"opinion_{opinion_id}.html"
+                        download_opinion_html(opinion_id, text, html_path)
+                        html_saved = True
+
+                # Save PDF
+                pdf_url = ""
+                if item.get('pdf_local_path'):
+                    logger.debug("local pdf path found")
+                    pdf_url = f"{BASE_PDF_URL}/{item.get('pdf_local_path')}"
+                elif item.get('pdf_harvard_path'):
+                    # if there is no local pdf path, then check if the case was hosted on harvard's system
+                    logger.debug("no local pdf path found, but harvard pdf path found")
+                    pdf_url = f"{BASE_PDF_URL}/{item['pdf_harvard_path']}"
+                else:
+                    logger.debug("no local or harvard pdf path found")
+
+                pdf_saved = False
+                if pdf_url != "":
+                    logger.debug(
+                        f"PDF URL: {pdf_url}", opinion_id=opinion_id)
+                    pdf_path = opinion_dir / f"opinion_{opinion_id}.pdf"
+                    if download_opinion_pdf(pdf_url, pdf_path):
+                        pdf_saved = True
+
+                # Log success message based on what was saved
+                if html_saved and pdf_saved:
+                    logger.log_download_success(
+                        opinion_id, "HTML and PDF saved")
+                elif html_saved:
+                    if pdf_url == "":
+                        logger.log_download_success(
+                            opinion_id, "HTML saved (no PDF available)")
+                    else:
+                        logger.log_download_success(
+                            opinion_id, "HTML saved (PDF failed)")
+                else:
+                    logger.warning(
+                        f"No HTML content available for opinion {opinion_id}", opinion_id=opinion_id)
+
+                time.sleep(REQUEST_DELAY)
+
+            except Exception as e:
+                logger.log_download_failure(opinion_id, str(e), exception=e)
+
+        except (KeyError, IndexError, TypeError) as e:
+            logger.error(
+                f"Error processing metadata item {i}", exception=e, item_index=i)
         except Exception as e:
-            logger.log_failure(opinion_id, str(e))
-            print(f"  Error: {e}")
-
-    logger.print_summary()
-    return logger
+            logger.error(
+                f"Unexpected error processing metadata item {i}", exception=e, item_index=i)
 
 
 def save_complete_dataset(results: List[Dict],
-                          download_opinions: bool = True) -> Dict[str, str]:
+                          download_opinions: bool = False) -> Dict[str, str]:
     """
-    Save complete dataset: metadata + opinion text/PDFs
+    Save complete dataset: cluster metadata, 
+    crosswalks, opinion metadata, docket metadata, and optionally download 
+    opinion text/PDFs
 
     Args:
-        results: List of opinion metadata
-        download_opinions: Whether to download full opinion text/PDFs
+        results: List of opinion cluster dictionaries from API
+        download_opinions: Whether to download full opinion text/PDFs (default: False)
 
     Returns:
         Dictionary with paths to saved files
     """
+    logger = get_logger()
     saved_files = {}
 
-    # Save metadata in both formats
-    saved_files['csv'] = save_metadata_csv(results)
-    saved_files['json'] = save_metadata_json(results)
+    logger.info("="*60)
+    logger.info("SAVING METADATA")
+    logger.info("="*60)
 
-    # Download opinions if requested
+    try:
+        # 1. Save opinion cluster metadata (without nested opinion data)
+        logger.info("")
+        logger.info("1. Extracting and saving opinion cluster metadata...")
+        cluster_df = extract_cluster_metadata(results)
+        cluster_csv_path = RUN_DIR / "cluster_metadata.csv"
+        cluster_df.to_csv(cluster_csv_path, index=False,
+                          quoting=csv.QUOTE_NONNUMERIC)
+        saved_files['cluster_metadata_csv'] = str(cluster_csv_path)
+        logger.info(
+            f"   Saved {len(cluster_df)} clusters to: {cluster_csv_path}")
+
+        # 2. Extract and save opinion metadata
+        logger.info("")
+        logger.info("2. Extracting and saving opinion metadata...")
+        opinion_df = extract_opinion_metadata(results)
+        opinion_csv_path = RUN_DIR / "opinion_metadata.csv"
+        opinion_df.to_csv(opinion_csv_path, index=False,
+                          quoting=csv.QUOTE_NONNUMERIC)
+        saved_files['opinion_metadata_csv'] = str(opinion_csv_path)
+        logger.info(
+            f"   Saved {len(opinion_df)} opinions to: {opinion_csv_path}")
+
+        # 3. Extract and save docket metadata
+        logger.info("")
+        logger.info("3. Extracting and saving docket metadata...")
+        docket_df = extract_docket_metadata(results)
+        docket_csv_path = RUN_DIR / "docket_metadata.csv"
+        docket_df.to_csv(docket_csv_path, index=False,
+                         quoting=csv.QUOTE_NONNUMERIC)
+        saved_files['docket_metadata_csv'] = str(docket_csv_path)
+        logger.info(f"   Saved {len(docket_df)} dockets to: {docket_csv_path}")
+
+        # 4. Save full JSON for reference (preserves all nested structures)
+        logger.info("")
+        logger.info("4. Saving complete JSON for reference...")
+        saved_files['json'] = save_metadata_json(results)
+        # logger.info(f"   Saved complete JSON to: {saved_files['json']}")
+
+    except Exception as e:
+        logger.error("Error saving dataset", exception=e)
+        raise
+
+    # # 5. Create and save cluster→opinion crosswalk
+    # print("5. Creating cluster→opinion crosswalk...")
+    # cluster_opinion_xwalk = create_cluster_opinion_crosswalk(results)
+    # xwalk_opinion_path = RUN_DIR / "cluster_opinion_crosswalk.csv"
+    # cluster_opinion_xwalk.to_csv(xwalk_opinion_path, index=False, quoting=csv.QUOTE_NONNUMERIC)
+    # saved_files['cluster_opinion_crosswalk_csv'] = str(xwalk_opinion_path)
+    # print(f"   Saved {len(cluster_opinion_xwalk)} cluster-opinion mappings to: {xwalk_opinion_path}\n")
+
+    # # 6. Create and save cluster→docket crosswalk
+    # print("6. Creating cluster→docket crosswalk...")
+    # cluster_docket_xwalk = create_cluster_docket_crosswalk(results)
+    # xwalk_docket_path = RUN_DIR / "cluster_docket_crosswalk.csv"
+    # cluster_docket_xwalk.to_csv(xwalk_docket_path, index=False, quoting=csv.QUOTE_NONNUMERIC)
+    # saved_files['cluster_docket_crosswalk_csv'] = str(xwalk_docket_path)
+    # print(f"   Saved {len(cluster_docket_xwalk)} cluster-docket mappings to: {xwalk_docket_path}\n")
+
+    # 7. Download opinions if requested
     if download_opinions:
-        logger = download_all_opinions(results)
+        logger.info("")
+        logger.info("7. Downloading opinion text/PDFs...")
+        download_all_opinions(results)
         saved_files['log'] = str(logger.log_path)
         saved_files['run_dir'] = str(CURR_OPINIONS_DIR)
+    else:
+        logger.info("")
+        logger.info("7. Skipping opinion downloads (download_opinions=False)")
+
+    logger.info("="*60)
+    logger.info("DATASET SAVE COMPLETE")
+    logger.info("="*60)
 
     return saved_files
 
 
-def flatten_metadata(results: List[Dict]) -> pd.DataFrame:
+def extract_cluster_metadata(results: List[Dict]) -> pd.DataFrame:
     """
-    Flatten nested metadata structures for easier analysis
+    Extract cluster-level metadata only (excluding nested opinion data)
 
     Args:
-        results: List of opinion dictionaries from API
+        results: List of opinion cluster dictionaries from API
 
     Returns:
-        Pandas DataFrame with flattened data
+        Pandas DataFrame with cluster-level metadata only
     """
     flattened = []
 
     for item in results:
         flat_item = {}
 
-        # Copy simple fields
+        # Copy simple fields (excluding nested structures)
         for key, value in item.items():
+            if key == 'opinions':  # Skip nested opinions - will be handled separately
+                continue
             if not isinstance(value, (dict, list)):
                 flat_item[key] = value
 
-        # Flatten all the columns that are lists
+        # Flatten list fields
         if 'citation' in item and isinstance(item['citation'], list):
             flat_item['citation'] = '; '.join(item['citation'])
         if 'non_participating_judge_ids' in item and isinstance(item['non_participating_judge_ids'], list):
@@ -307,63 +644,21 @@ def flatten_metadata(results: List[Dict]) -> pd.DataFrame:
             flat_item['sibling_ids'] = '; '.join(
                 map(str, item['sibling_ids']))
 
-
-        # Flatten the "meta" field which is a dictionary 
+        # Flatten the "meta" field
         if 'meta' in item and isinstance(item['meta'], dict):
             for meta_key, meta_value in item['meta'].items():
                 if meta_key == 'score' and isinstance(meta_value, dict):
+                    # meta score is itself a nested dict
                     for score_key, score_value in meta_value.items():
                         flat_item[f"meta_score_{score_key}"] = score_value
                 else:
                     flat_item[f"meta_{meta_key}"] = meta_value
-                    # parse meta_score which is another nested dict 
-
-
-        # Handle nested 'opinions' field if it exists, which is a list of dicts 
-        # TODO: add handling for if there are multiple opinions
-        opinion = None
-        if 'opinions' in item and isinstance(item['opinions'], list):
-            if len(item['opinions']) > 1:
-                warnings.warn(f"Found multiple 'opinions' field for case {item.get('absolute_url')}")
-            opinion = item['opinions'][0]  # assuming first opinion
-        elif 'opinion' in item:
-            print("Found 'opinion' field of class:", type(item['opinion']))
-            if isinstance(item['opinion'], dict):
-                opinion = item['opinion']  # TODO check, but it seemed like there was a different data structure here if you only pulled the first page of results
-        if opinion is not None:
-            # Extract key opinion fields
-            flat_item['opinion_id'] = opinion.get('id')
-            flat_item['author_id'] = opinion.get('author_id')
-            flat_item['pdf_original_path'] = opinion.get('download_url')
-            # flat_item['pdf_local_path'] = opinion.get('local_path') # already handled when retrieving results
-            flat_item['per_curiam'] = opinion.get('per_curiam')
-            flat_item['snippet'] = opinion.get('snippet')
-            flat_item['opinion_type'] = opinion.get('type')
-
-            # Flatten lists
-            if 'joined_by_ids' in opinion and opinion['joined_by_ids']:
-                flat_item['joined_by_ids'] = '; '.join(
-                    map(str, opinion['joined_by_ids']))
-                flat_item['num_joined_by'] = len(opinion['joined_by_ids'])
-
-            if 'cites' in opinion and opinion['cites']:
-                flat_item['cites'] = '; '.join(
-                    map(str, opinion['cites']))
-                flat_item['num_citations'] = len(opinion['cites'])
-            else:
-                flat_item['num_citations'] = 0
-
-        # Handle 'cluster' field if it exists
-        if 'cluster' in item and isinstance(item['cluster'], dict):
-            cluster = item['cluster']
-            flat_item['cluster_id'] = cluster.get('id')
-            flat_item['case_name'] = cluster.get('case_name')
-            flat_item['date_filed'] = cluster.get('date_filed')
 
         flattened.append(flat_item)
 
     df = pd.DataFrame(flattened)
-    df = df.reindex(sorted(df.columns), axis=1) # rearrange columns in alphabetical order
+    # rearrange columns in alphabetical order
+    df = df.reindex(sorted(df.columns), axis=1)
 
     # Convert date columns to datetime
     date_columns = ['date_filed', 'dateFiled']
@@ -373,3 +668,244 @@ def flatten_metadata(results: List[Dict]) -> pd.DataFrame:
 
     return df
 
+
+def extract_opinion_metadata(results: List[Dict]) -> pd.DataFrame:
+    """
+    Extract full metadata for all individual opinions
+
+    Args:
+        results: List of opinion cluster dictionaries from API
+
+    Returns:
+        DataFrame with full opinion metadata
+    """
+    opinion_data = []
+
+    logger = get_logger()
+    # logger.info(f"Extracting opinion metadata for {len(results)} clusters...")
+
+    for i, cluster in enumerate(results, 1):
+        opinions = cluster.get('opinions', [])
+
+        for opinion in opinions:
+            opinion_id = opinion.get('id')
+
+            if not opinion_id:
+                logger.warning("Opinion missing ID in cluster",
+                               cluster_index=i)
+                continue
+
+            try:
+                # Fetch full opinion metadata
+                full_opinion = get_opinion_by_id(opinion_id)
+
+                # Flatten opinion metadata
+                flat_opinion = {}
+
+                # ignore html/text fields since we download them separately
+                ignore_fields = [
+                    "plain_text", "html", "html_lawbox", "html_columbia",
+                    "html_anon_2020", "xml_harvard", "html_with_citations"
+                ]
+                for field in ignore_fields:
+                    full_opinion.pop(field, None)
+
+                for key, value in full_opinion.items():
+                    # note we don't expect any nested dicts
+
+                    if not isinstance(value, (dict, list)):
+                        flat_opinion[key] = value
+                    elif isinstance(value, list):
+                        # Flatten lists to semicolon-separated strings
+                        flat_opinion[key] = '; '.join(map(
+                            str, value)) if value else None
+
+                # TODO: update this
+                # add a column to check if html_with_citations is populated; if local_path pdf link is available; if harvard pdf link is available
+                # for result in all_results:
+                #     opinion_metadata = result.get('opinions', [{}])[0]
+                #     opinion_id = opinion_metadata.get('id')
+                #     cluster_id = result.get('cluster_id')
+                #     opinion = get_opinion_by_id(opinion_id, api_key)
+                #     cluster = get_cluster_by_id(cluster_id, api_key)
+
+                #     result['has_html_with_citations'] = bool(opinion.get('html_with_citations')) & (opinion.get('html_with_citations') != "")
+                #     result['pdf_local_path'] = opinion.get('local_path')
+                #     result['pdf_harvard_path'] = cluster.get('filepath_pdf_harvard')
+
+                # rename "id" to "opinion_id" and "type" to "opinion_type" for clarity
+                flat_opinion['opinion_id'] = flat_opinion.pop('id', None)
+                flat_opinion['opinion_type'] = flat_opinion.pop('type', None)
+
+                opinion_data.append(flat_opinion)
+                time.sleep(REQUEST_DELAY)
+
+            except Exception as e:
+                logger.error(f"Error fetching opinion {opinion_id}",
+                             exception=e,
+                             opinion_id=opinion_id)
+
+        if (i % 100) == 0:
+            logger.info(f"Processed {i}/{len(results)} clusters...")
+
+    df = pd.DataFrame(opinion_data)
+    if not df.empty:
+        # rearrange columns in alphabetical order
+        df = df.reindex(sorted(df.columns), axis=1)
+
+    return df
+
+
+def extract_docket_metadata(results: List[Dict]) -> pd.DataFrame:
+    """
+    Extract full metadata for all dockets
+
+    Args:
+        results: List of opinion cluster dictionaries from API
+
+    Returns:
+        DataFrame with full docket metadata
+    """
+    # Get unique docket IDs
+    docket_ids = set()
+    for cluster in results:
+        docket_id = cluster.get('docket_id')
+        if docket_id:
+            docket_ids.add(docket_id)
+
+    logger = get_logger()
+    # logger.info(f"Extracting metadata for {len(docket_ids)} unique dockets...")
+
+    docket_data = []
+
+    for i, docket_id in enumerate(sorted(docket_ids), 1):
+        try:
+            # Fetch full docket metadata via API
+            docket = get_docket_by_id(docket_id)
+
+            # Flatten docket metadata
+            flat_docket = {}
+            for key, value in docket.items():
+                if not isinstance(value, (dict, list)):
+                    flat_docket[key] = value
+                elif isinstance(value, list):
+                    # Flatten lists to semicolon-separated strings
+                    flat_docket[key] = '; '.join(
+                        map(str, value)) if value else None
+
+            # rename "id" to "docket_id" for clarity
+            flat_docket['docket_id'] = flat_docket.pop('id', None)
+
+            docket_data.append(flat_docket)
+            time.sleep(REQUEST_DELAY)
+
+        except Exception as e:
+            logger.error(
+                f"Error fetching docket {docket_id}", exception=e, docket_id=docket_id)
+
+        if (i % 100) == 0:
+            logger.info(f"Processed {i}/{len(docket_ids)} dockets...")
+
+    df = pd.DataFrame(docket_data)
+    if not df.empty:
+        df = df.reindex(sorted(df.columns), axis=1)
+
+    return df
+
+
+# def create_cluster_opinion_crosswalk(results: List[Dict]) -> pd.DataFrame:
+#     """
+#     Create crosswalk mapping opinion clusters to individual opinions with opinion types
+
+#     Args:
+#         results: List of opinion cluster dictionaries from API
+
+#     Returns:
+#         DataFrame with columns: cluster_id, opinion_id, opinion_type
+#     """
+#     crosswalk_data = []
+
+#     print(f"Creating cluster-opinion crosswalk for {len(results)} clusters...")
+
+#     for i, cluster in enumerate(results, 1):
+#         cluster_id = cluster.get('cluster_id')
+
+#         if not cluster_id:
+#             print(f"Warning: Cluster {i} has no ID, skipping")
+#             continue
+
+#         # Get opinion IDs from nested opinions field
+#         opinions = cluster.get('opinions', [])
+
+#         if not opinions:
+#             print(f"Warning: Cluster {cluster_id} has no opinions")
+#             continue
+
+#         # For each opinion, fetch full metadata to get opinion type
+#         for opinion in opinions:
+#             opinion_id = opinion.get('id')
+
+#             if not opinion_id:
+#                 print(f"Warning: Cluster {cluster_id} has opinion with no ID")
+#                 continue
+
+#             # Fetch full opinion metadata to get type
+#             try:
+#                 opinion_data = get_opinion_by_id(opinion_id)
+#                 opinion_type = opinion_data.get('type', None)
+
+#                 crosswalk_data.append({
+#                     'cluster_id': cluster_id,
+#                     'opinion_id': opinion_id,
+#                     'opinion_type': opinion_type
+#                 })
+
+#                 time.sleep(REQUEST_DELAY)
+
+#             except Exception as e:
+#                 print(f"Error fetching opinion {opinion_id}: {e}")
+#                 crosswalk_data.append({
+#                     'cluster_id': cluster_id,
+#                     'opinion_id': opinion_id,
+#                     'opinion_type': None
+#                 })
+
+#         if (i % 100) == 0:
+#             print(f"Processed {i}/{len(results)} clusters...")
+
+#     df = pd.DataFrame(crosswalk_data)
+#     return df
+
+
+# def create_cluster_docket_crosswalk(results: List[Dict]) -> pd.DataFrame:
+#     """
+#     Create crosswalk mapping opinion clusters to dockets
+
+#     NOTE: this is completely redundant with the cluster metadata, which already lists docket number and docket ID.
+
+#     Args:
+#         results: List of opinion cluster dictionaries from API
+
+#     Returns:
+#         DataFrame with columns: cluster_id, raw_docket_number, docket_id
+#     """
+#     crosswalk_data = []
+
+#     print(f"Creating cluster-docket crosswalk for {len(results)} clusters...")
+
+#     for i, cluster in enumerate(results, 1):
+#         cluster_id = cluster.get('cluster_id')
+#         docket_id = cluster.get('docket_id')
+#         raw_docket_number = cluster.get('docketNumber')
+
+#         crosswalk_data.append({
+#             'cluster_id': cluster_id,
+#             'docket_id': docket_id,
+#             'raw_docket_number': raw_docket_number,
+#         })
+
+#         if (i % 100) == 0:
+#             print(f"Processed {i}/{len(results)} clusters...")
+
+#     df = pd.DataFrame(crosswalk_data)
+#     return df

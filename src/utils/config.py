@@ -6,7 +6,6 @@ from pathlib import Path
 from datetime import datetime
 
 
-
 # Directory Structure
 # loc = "yale_server"
 loc = "local"
@@ -15,18 +14,24 @@ if loc == "local":
     BASE_DIR = Path(
         "C:/Users/hl2266/YLS Dropbox/Hannah Lu/NEPA Court Cases/Code/NEPA_court_cases")
 elif loc == "yale_server":
-    BASE_DIR = Path("/home/hl2266/project_pi_zdl3/hl2266/code/NEPA_court_cases")
+    BASE_DIR = Path(
+        "/home/hl2266/project_pi_zdl3/hl2266/code/NEPA_court_cases")
 else:
     raise ValueError("Invalid location specified")
 
 DATA_DIR = BASE_DIR / "data"
-METADATA_DIR = DATA_DIR / "metadata"
-OPINIONS_BASE_DIR = DATA_DIR / "opinions"
-LOGS_DIR = DATA_DIR / "logs"
 
 # Set global timestamp for use as file/run identifier
 RUN_TIMESTAMP = datetime.now().strftime("%Y%m%d_%H%M%S")
-CURR_OPINIONS_DIR = OPINIONS_BASE_DIR / f"run_{RUN_TIMESTAMP}"
+
+# New structure: everything from one run goes in data/run_{timestamp}/
+RUN_DIR = DATA_DIR / f"run_{RUN_TIMESTAMP}"
+CURR_OPINIONS_DIR = RUN_DIR / "opinions"
+
+# Legacy directories (kept for backward compatibility with old code)
+METADATA_DIR = DATA_DIR / "metadata"
+OPINIONS_BASE_DIR = DATA_DIR / "opinions"
+LOGS_DIR = DATA_DIR / "logs"
 
 # API Configuration
 API_KEY_PATH = BASE_DIR / "secret" / "COURTLISTENER_API_KEY.txt"
@@ -37,9 +42,10 @@ BASE_PDF_URL = "https://storage.courtlistener.com"
 BASE_API_URL = "https://www.courtlistener.com/api/rest/v4"
 
 # API Settings
-RESULTS_PER_PAGE = 20  # TODO: don't think we can specify this?
 REQUEST_DELAY = 0.5  # seconds between requests (be nice to the API)
-TIMEOUT = 30  # seconds
+TIMEOUT = 60  # seconds
+RETRY_WAIT_TIME = 5  # seconds to wait before retrying on retryable errors
+MAX_RETRIES = 3  # maximum number of retries for 502 and 429 errors
 
 
 def setup_directories():
@@ -47,11 +53,19 @@ def setup_directories():
     directories = [
         BASE_DIR,
         DATA_DIR,
+        RUN_DIR,
+        CURR_OPINIONS_DIR,
+        # Legacy directories
         METADATA_DIR,
         OPINIONS_BASE_DIR,
-        CURR_OPINIONS_DIR,
         LOGS_DIR
     ]
 
     for directory in directories:
         directory.mkdir(parents=True, exist_ok=True)
+
+    # Initialize global logger
+    from src.utils.logger import Logger, set_logger
+    logger = Logger(log_dir=RUN_DIR)
+    set_logger(logger)
+    logger.info("Logger initialized", run_dir=str(RUN_DIR))
