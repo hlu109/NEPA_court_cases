@@ -628,6 +628,7 @@ def extract_cluster_metadata(results: List[Dict]) -> pd.DataFrame:
                 continue
             if not isinstance(value, (dict, list)):
                 flat_item[key] = value
+                # TODO: debug why this doesn't seem to catch filepath_pdf_harvard fields? 
 
         # Flatten list fields
         if 'citation' in item and isinstance(item['citation'], list):
