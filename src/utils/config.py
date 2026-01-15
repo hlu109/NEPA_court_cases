@@ -5,8 +5,9 @@ Configuration file for CourtListener API project
 from pathlib import Path
 from datetime import datetime
 
+################################################################################
+# SET CODE LOCATION -----------------------------------------------------------
 
-# Directory Structure
 # loc = "yale_server"
 loc = "local"
 
@@ -19,19 +20,48 @@ elif loc == "yale_server":
 else:
     raise ValueError("Invalid location specified")
 
-DATA_DIR = BASE_DIR / "data"
+################################################################################
+# DATA DIRECTORY --------------------------------------------------------------
+
+
+# Data directory structure (separate from code directory)
+if loc == "local":
+    DATA_ROOT_DIR = Path(
+        "C:/Users/hl2266/YLS Dropbox/Hannah Lu/NEPA Court Cases/Data/")
+elif loc == "yale_server":
+    pass # TODO: update 
+else:
+    raise ValueError("Invalid location specified")
+
+# Raw and Intermediate data directories
+RAW_DATA_DIR = DATA_ROOT_DIR / "Raw"
+INTERMEDIATE_DATA_DIR = DATA_ROOT_DIR / "Intermediate"
+
+# Raw data file paths
+ADELGLICKS_RAW_PATH = RAW_DATA_DIR / "nepa_judicial/data/NEPA Lit Circuit WL Sample-Combo Supp-Coded Final 2001-15 2.7.24.xlsx"
+ADELGLICKS_SHEET_NAME = "NEPA Circuit Data"
+COURTLISTENER_METADATA_DIR = RAW_DATA_DIR / "CourtListener metadata"
+
+# Output paths for cleaned datasets
+CLEANED_DATASETS_DIR = INTERMEDIATE_DATA_DIR / "Cleaned Datasets"
+ADELGLICKS_CLEANED_PATH = CLEANED_DATASETS_DIR / "AdelGlicks.csv"
+COURTLISTENER_CLUSTER_CLEANED_PATH = CLEANED_DATASETS_DIR / "CourtListener/cluster_metadata.csv"
+COURTLISTENER_AG_MATCH_STATS_PATH = INTERMEDIATE_DATA_DIR / "CourtListener_AdelGlicks_match_stats.txt"
+
+################################################################################
 
 # Set global timestamp for use as file/run identifier
 RUN_TIMESTAMP = datetime.now().strftime("%Y%m%d_%H%M%S")
 
-# New structure: everything from one run goes in data/run_{timestamp}/
+################################################################################
+# COURTLISTENER SETUP  --------------------------------------------------------
+
+# CourtListener download structure 
+DATA_DIR = BASE_DIR / "data" # TODO: we need to get rid of this variable and move courtlistener stuff to the actual data dir outside this git repository
+
 RUN_DIR = DATA_DIR / f"run_{RUN_TIMESTAMP}"
 CURR_OPINIONS_DIR = RUN_DIR / "opinions"
 
-# Legacy directories (kept for backward compatibility with old code)
-METADATA_DIR = DATA_DIR / "metadata"
-OPINIONS_BASE_DIR = DATA_DIR / "opinions"
-LOGS_DIR = DATA_DIR / "logs"
 
 # API Configuration
 API_KEY_PATH = BASE_DIR / "secret" / "COURTLISTENER_API_KEY.txt"
@@ -48,6 +78,8 @@ RETRY_WAIT_TIME = 5  # seconds to wait before retrying on retryable errors
 MAX_RETRIES = 3  # maximum number of retries for 502 and 429 errors
 
 
+################################################################################
+
 def setup_directories():
     """Create project directory structure"""
     directories = [
@@ -55,10 +87,6 @@ def setup_directories():
         DATA_DIR,
         RUN_DIR,
         CURR_OPINIONS_DIR,
-        # Legacy directories
-        METADATA_DIR,
-        OPINIONS_BASE_DIR,
-        LOGS_DIR
     ]
 
     for directory in directories:
