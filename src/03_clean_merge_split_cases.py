@@ -23,6 +23,11 @@ from utils.config import (
     AG_TEST_ASSIGNMENTS_PATH,
     CL_TRAIN_ASSIGNMENTS_PATH,
     COURTLISTENER_METADATA_DIR,
+    LLM_OPINION_CODING_RAW_PATH,
+    LLM_OPINION_CODING_PATH,
+    INTERMEDIATE_DATA_DIR,
+    OUTCOME_PREDICTIONS_DIR,
+    CL_TRAIN_PREDICTIONS_PATH,
 )
 
 
@@ -102,25 +107,23 @@ def clean_adelglicks_outcomes(df: pd.DataFrame) -> pd.DataFrame:
     df['decision'] = df['decision'].str.strip().str.lower()
     df['rev_aff'] = df['rev_aff'].str.strip().str.lower()
 
-    df['district_outcome'] = df['decision'].map({
-        'aff_def': 'defendant',
-        'rev_def': 'defendant',
-        'aff_pl': 'plaintiff',
-        'rev_pl': 'plaintiff',
+    df['district_outcome'] = df['appellee'].map({ # appellee won in district court
+        'def': 'defendant',
+        'fed': 'defendant',
+        'p': 'plaintiff',
+        'cross': None # placeholder - handle later 
     })
     df['disposition'] = df['rev_aff'].map({
         'aff': 'affirm',
         'rev': 'reverse',
     })
 
+    # if "decision" was mixed, then set disposition to mixed (the "rev_aff" column doesn't code for this)
+    df.loc[df['decision'] == 'mixed', 'disposition'] = 'mixed'
+    # if "decision" was denied, this correctly codes that the appellate court affirmed the district court's decision (no change to coding needed)
+    # if "decision" was granted, this correctly codes that the appellate court reversed the district court's decision (no change to coding needed)
+    # if "decision" was dismissed, this seems more complicated, but we stick with the AdelGLicks coding for now 
 
-    # TODO: handle mixed outcomes, which are not coded in rev_aff
-    # if decision is mixed, granted, denied, or dismissed, then set district_outcome and disposition to na for now 
-    df.loc[df['decision'].isin(['mixed', 'granted', 'denied', 'dismissed']), 'district_outcome'] = None
-    df.loc[df['decision'].isin(['mixed', 'granted', 'denied', 'dismissed']), 'disposition'] = None
-
-    # TODO: handle unclear coding for district outcome - e.g., granted, denied, mixed, dismissed - will need to manually check these 
-    
     print("Unmapped district outcomes:")
     print(df['district_outcome'].isna().sum())
     print("Unmapped dispositions:")
@@ -173,6 +176,9 @@ def clean_adelglicks_data(adelglicks_raw_path: str, sheet_name: str,
     # print(df['lead_agency'].unique())
 
     df = clean_adelglicks_outcomes(df)
+
+    # Drop rows that are perfect duplicates 
+    df = df.drop_duplicates()
     
     # Save cleaned data
     output_path = Path(output_path)
@@ -456,6 +462,9 @@ def clean_cluster_metadata(cluster_metadata_path: str,
 
     # Re-sort column variables alphabetically
     cluster_df = cluster_df.reindex(sorted(cluster_df.columns), axis=1)
+    
+    # Drop rows that are duplicates 
+    cluster_df = cluster_df.drop_duplicates(subset=["cluster_id"])
 
     # Save cleaned data
     output_path = Path(output_path)
@@ -920,6 +929,101 @@ def assign_val_test_split_main():
     save_val_and_test_subsets(matches_df)
     save_cl_train_split(matches_df)
 
+
+def merge_cl_train_with_outcomes(
+    train_assignments_path: Path = CL_TRAIN_ASSIGNMENTS_PATH,
+    output_path: Path = CL_TRAIN_PREDICTIONS_PATH,
+) -> pd.DataFrame:
+    """ Merge CL train data with lead opinion coded outcomes.
+    
+    Args:
+        train_assignments_path: Path to CL train assignments CSV. 
+        output_path: Path to save merged results.
+    
+    Returns:
+        DataFrame with merged train data and predictions
+    """
+    # Load data
+    train_assignments = pd.read_csv(train_assignments_path, dtype={"cluster_id": str}) 
+    cl_df = pd.read_csv(COURTLISTENER_CLUSTER_CLEANED_PATH, dtype={"cluster_id": str, "lead_opinion_id": str})
+    pred_outcomes_df = pd.read_csv(LLM_OPINION_CODING_PATH, dtype={"opinion_id": str})
+    
+    # Validate required columns
+    assert "lead_opinion_id" in cl_df.columns, "lead_opinion_id missing from CourtListener cluster metadata"
+    assert "opinion_id" in pred_outcomes_df.columns, "opinion_id missing from LLM coded outcomes"
+    assert "cluster_id" in train_assignments.columns, "cluster_id missing from train assignments"
+
+    # Merge with CL to get lead opinion id
+    merged = train_assignments.merge(
+        cl_df[["cluster_id", "lead_opinion_id"]],
+        on="cluster_id",
+        how="left",
+    )
+    
+    # Merge with LLM predictions
+    pred_outcomes_df = pred_outcomes_df.rename(columns={
+        "district_outcome": "district_outcome_pred",
+        "disposition": "disposition_pred"
+    })
+    merged = merged.merge(
+        pred_outcomes_df,
+        left_on="lead_opinion_id",
+        right_on="opinion_id",
+        how="left",
+    )
+    
+    # Save output
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    merged.to_csv(output_path, index=False)
+    print(f"Saved merged CL train predictions to: {output_path}")
+    
+    # Print summary statistics
+    total_cases = len(merged)
+    cases_with_predictions = merged["district_outcome_pred"].notna().sum()
+    print(f"Total train cases: {total_cases}")
+    print(f"Cases with predictions: {cases_with_predictions} ({cases_with_predictions/total_cases*100:.1f}%)")
+    
+    return merged
+
+
+def flip_district_outcome(
+    input_path: Path = LLM_OPINION_CODING_RAW_PATH,
+) -> pd.DataFrame:
+    """
+    Flip district_outcome values in LLM opinion coding CSV.
+    
+    Flips "defendant" to "plaintiff" and "plaintiff" to "defendant".
+    Leaves "mixed" and "UNK" unchanged.
+    
+    Args:
+        input_path: Path to input CSV file with district_outcome column
+        
+    Output:
+        Saves flipped district_outcome values to a new CSV file with "_district_flipped" suffix
+    """
+    # print(f"Loading LLM opinion coding from {input_path}...")
+    df = pd.read_csv(input_path)
+    assert "district_outcome" in df.columns, "district_outcome column not found in input CSV"
+    
+    # Flip district_outcome values
+    print("Flipping district_outcome values...")
+    df["district_outcome"] = df["district_outcome"].map({
+        "defendant": "plaintiff",
+        "plaintiff": "defendant",
+    }).fillna(df["district_outcome"])  # Keep original value if not in mapping (e.g., "mixed", "UNK", NaN)
+    
+    # Save output
+    input_path_obj = Path(input_path)
+    output_path = input_path_obj.parent / f"{input_path_obj.stem}_district_flipped{input_path_obj.suffix}"
+    
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    df.to_csv(output_path, index=False)
+    print(f"Saved flipped district_outcome data to: {output_path}")
+    
+    return df
+
+
+
 # ------------------------------------------------------------------------------
 
 def main():
@@ -927,6 +1031,8 @@ def main():
     clean_courtlistener_clusters_main()
     merge_cases_by_docket_main()
     assign_val_test_split_main()
+    flip_district_outcome() # temporary workaround because it seems like the LLM coded everything the opposite way 
+    merge_cl_train_with_outcomes()
 
 
 if __name__ == "__main__":

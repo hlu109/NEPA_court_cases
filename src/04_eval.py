@@ -63,7 +63,7 @@ def plot_confusion_matrix(
     if df.empty:
         return None
 
-    labels = sorted(pd.unique(list(df["y_true"].unique()) + ["mixed"]))
+    labels = sorted(pd.unique(pd.concat([df["y_true"], pd.Series(["mixed"])])))
     cm = confusion_matrix(df["y_true"], df["y_pred"], labels=labels)
     disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=labels)
     fig, ax = plt.subplots(figsize=(6, 6))
@@ -87,10 +87,10 @@ def evaluate_split(
     """
     Evaluate a split (val or test) and return a metrics dataframe.
     """
-    assignments = pd.read_csv(assignments_path)
-    ground_truth_df = pd.read_csv(ground_truth_path)
-    cl_df = pd.read_csv(COURTLISTENER_CLUSTER_CLEANED_PATH)
-    pred_outcomes_df = pd.read_csv(LLM_OPINION_CODING_PATH)
+    assignments = pd.read_csv(assignments_path, dtype={"cluster_id": str, assignments_id_col: str})
+    ground_truth_df = pd.read_csv(ground_truth_path, dtype={"cluster_id": str, ground_truth_id_col: str})
+    cl_df = pd.read_csv(COURTLISTENER_CLUSTER_CLEANED_PATH, dtype={"cluster_id": str, "lead_opinion_id": str})
+    pred_outcomes_df = pd.read_csv(LLM_OPINION_CODING_PATH, dtype={"opinion_id": str})
 
     assert "lead_opinion_id" in cl_df.columns, "lead_opinion_id missing from CourtListener cluster metadata"
     assert "opinion_id" in pred_outcomes_df.columns, "opinion_id missing from LLM coded outcomes"
@@ -103,15 +103,6 @@ def evaluate_split(
         on="cluster_id",
         how="left",
     )
-    # set relevant id variables to strings
-    merged["cluster_id"] = merged["cluster_id"].astype(str)
-    merged["lead_opinion_id"] = merged["lead_opinion_id"].astype(
-        int).astype(str)
-    merged[assignments_id_col] = merged[assignments_id_col].astype(str)
-    ground_truth_df[ground_truth_id_col] = ground_truth_df[ground_truth_id_col].astype(
-        str)
-    pred_outcomes_df["opinion_id"] = pred_outcomes_df["opinion_id"].astype(
-        int).astype(str)
 
     # Join ground truth
     merged = merged.merge(
