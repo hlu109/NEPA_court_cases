@@ -11,6 +11,8 @@ from utils.config import (
     OUTCOME_ASSIGNMENTS_DIR,
     AG_VAL_ASSIGNMENTS_PATH,
     AG_TEST_ASSIGNMENTS_PATH,
+    CL_TRAIN_ASSIGNMENTS_PATH,
+    COURTLISTENER_CLUSTER_CLEANED_PATH,
 )
 
 
@@ -38,14 +40,14 @@ def assign_val_test_split(
     df = matches_df.copy()
     df[split_col] = ""
 
-    eligible_mask = df["is_perfect_match"].astype(bool) & df["AG_has_outcome"].astype(bool)
+    eligible_mask = df["is_perfect_match"].astype(
+        bool) & df["AG_has_outcome"].astype(bool)
     eligible_df = df[eligible_mask]
 
     rng = np.random.default_rng(seed)
     val_indices = []
     test_indices = []
     leftovers = []
-
 
     for _, group in eligible_df.groupby(["court_id"]):
         group_indices = group.index.to_numpy()
@@ -75,20 +77,14 @@ def assign_val_test_split(
     return df
 
 
-def main():
-    matches_df = pd.read_csv(COURTLISTENER_AG_MATCHING_PATH)
-    matches_df = assign_val_test_split(matches_df)
-
-    # Save outputs
-    COURTLISTENER_AG_MATCHING_SPLIT_PATH.parent.mkdir(parents=True, exist_ok=True)
-    matches_df.to_csv(COURTLISTENER_AG_MATCHING_SPLIT_PATH, index=False)
-    print(f"\nSaved split data to: {COURTLISTENER_AG_MATCHING_SPLIT_PATH}")
-
-    # Also save the val and test sets in their own files (as a permanent identification so we don't accidentally touch or change the test set)
-    OUTCOME_ASSIGNMENTS_DIR.mkdir(parents=True, exist_ok=True)
-    
+def save_val_and_test_subsets(matches_df):
+    """
+    Save the val and test sets in their own files as a permanent record to avoid accidental modification.
+    """
     val_df = matches_df[matches_df["dataset_split"] == "val"].copy()
     test_df = matches_df[matches_df["dataset_split"] == "test"].copy()
+
+    OUTCOME_ASSIGNMENTS_DIR.mkdir(parents=True, exist_ok=True)
     val_df.to_csv(AG_VAL_ASSIGNMENTS_PATH, index=False)
     test_df.to_csv(AG_TEST_ASSIGNMENTS_PATH, index=False)
 
@@ -96,6 +92,52 @@ def main():
     print(f"Saved test subset to: {AG_TEST_ASSIGNMENTS_PATH}")
 
 
+def save_cl_train_split(matches_df):
+    """
+    Save all CourtListener cases excluding val/test cases as the train set.
+    """
+    cl_df = pd.read_csv(COURTLISTENER_CLUSTER_CLEANED_PATH)
+    exclude_ids = matches_df.loc[matches_df["is_perfect_match"],
+                                 "cluster_id"].unique()
+    # print(exclude_ids)
+
+    train_matches = matches_df[~matches_df["cluster_id"].isin(exclude_ids)]
+    train_matches.loc[:, "dataset_split"] = "train"
+
+    unmatched_cl = cl_df[~cl_df["cluster_id"].isin(
+        matches_df["cluster_id"])].copy()
+    unmatched_cl = unmatched_cl[~unmatched_cl["cluster_id"].isin(exclude_ids)]
+
+    # Build rows with same columns as matches_df
+    base_cols = list(matches_df.columns)
+    cl_train_unmatched = pd.DataFrame(columns=base_cols)
+    cl_train_unmatched["cluster_id"] = unmatched_cl["cluster_id"]
+    cl_train_unmatched["court_id"] = unmatched_cl["court_id"]
+    cl_train_unmatched["CL_year_filed"] = unmatched_cl["year_filed"]
+    cl_train_unmatched["dataset_split"] = "train"
+
+    cl_train_df = pd.concat(
+        [train_matches, cl_train_unmatched], ignore_index=True)
+
+    # Save output
+    CL_TRAIN_ASSIGNMENTS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    cl_train_df.to_csv(CL_TRAIN_ASSIGNMENTS_PATH, index=False)
+    print(f"Saved CL train set to: {CL_TRAIN_ASSIGNMENTS_PATH}")
+
+
+def main():
+    matches_df = pd.read_csv(COURTLISTENER_AG_MATCHING_PATH)
+    matches_df = assign_val_test_split(matches_df)
+
+    # Save outputs
+    COURTLISTENER_AG_MATCHING_SPLIT_PATH.parent.mkdir(
+        parents=True, exist_ok=True)
+    matches_df.to_csv(COURTLISTENER_AG_MATCHING_SPLIT_PATH, index=False)
+    print(f"\nSaved split data to: {COURTLISTENER_AG_MATCHING_SPLIT_PATH}")
+
+    save_val_and_test_subsets(matches_df)
+    save_cl_train_split(matches_df)
+
+
 if __name__ == "__main__":
     main()
-
