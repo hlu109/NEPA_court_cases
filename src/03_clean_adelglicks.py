@@ -48,6 +48,43 @@ def clean_adelglicks_dockets(df: pd.DataFrame) -> pd.DataFrame:
 
     return df
 
+
+def clean_adelglicks_outcomes(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Standardize the coding of case outcomes. 
+    """
+    df = df.copy()
+    # strip whitespace and standardize to lowercase
+    df['decision'] = df['decision'].str.strip().str.lower()
+    df['rev_aff'] = df['rev_aff'].str.strip().str.lower()
+
+    df['district_outcome'] = df['decision'].map({
+        'aff_def': 'defendant',
+        'rev_def': 'defendant',
+        'aff_pl': 'plaintiff',
+        'rev_pl': 'plaintiff',
+    })
+    df['disposition'] = df['rev_aff'].map({
+        'aff': 'affirm',
+        'rev': 'reverse',
+    })
+
+
+    # TODO: handle mixed outcomes, which are not coded in rev_aff
+    # if decision is mixed, granted, denied, or dismissed, then set district_outcome and disposition to na for now 
+    df.loc[df['decision'].isin(['mixed', 'granted', 'denied', 'dismissed']), 'district_outcome'] = None
+    df.loc[df['decision'].isin(['mixed', 'granted', 'denied', 'dismissed']), 'disposition'] = None
+
+    # TODO: handle unclear coding for district outcome - e.g., granted, denied, mixed, dismissed - will need to manually check these 
+    
+    print("Unmapped district outcomes:")
+    print(df['district_outcome'].isna().sum())
+    print("Unmapped dispositions:")
+    print(df['disposition'].isna().sum())
+    print("Total cases in AG data:", df.shape[0])
+
+    return df
+
 def clean_adelglicks_data(adelglicks_raw_path: str, sheet_name: str, 
                           output_path: str) -> pd.DataFrame:
     """
@@ -71,6 +108,7 @@ def clean_adelglicks_data(adelglicks_raw_path: str, sheet_name: str,
     # Harmonize other variables (year, court/circuit, lead agency)
     # year_filed is already present
     print("Harmonizing other variables...")
+    
     df['court_id'] = df['circuit'].map({
         'DC Circuit': 'cadc',
         'First Circuit': 'ca1',
@@ -89,6 +127,8 @@ def clean_adelglicks_data(adelglicks_raw_path: str, sheet_name: str,
     df['lead_agency'] = df['agency']
     # print("Lead agencies found:")
     # print(df['lead_agency'].unique())
+
+    df = clean_adelglicks_outcomes(df)
     
     # Save cleaned data
     output_path = Path(output_path)

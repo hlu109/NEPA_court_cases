@@ -16,7 +16,8 @@ from utils.config import (
     ADELGLICKS_CLEANED_PATH,
     COURTLISTENER_CLUSTER_CLEANED_PATH,
     INTERMEDIATE_DATA_DIR,
-    COURTLISTENER_AG_MATCH_STATS_PATH
+    COURTLISTENER_AG_MATCH_STATS_PATH,
+    COURTLISTENER_AG_MATCHING_PATH
 )
 
 # TODO: use year_filed as a sanity check after matching (because there might also be error in the year filed data?)
@@ -110,15 +111,30 @@ def compute_all_matches(cl_df, ag_df):
                     matches.append({
                         'cluster_id': cl_df.loc[cl_idx, 'cluster_id'],
                         'adelglicks_id': ag_df.loc[ag_idx, 'id_num'],
-                        'cl_docket_count': len(cl_dockets),
-                        'ag_docket_count': len(ag_dockets),
+                        'court_id': cl_df.loc[cl_idx, 'court_id'],
+                        'CL_year_filed': cl_df.loc[cl_idx, 'year_filed'],
+                        'AG_year_filed': ag_df.loc[ag_idx, 'year_filed'],
+                        'CL_AG_year_match': (
+                            cl_df.loc[cl_idx, 'year_filed']
+                            == ag_df.loc[ag_idx, 'year_filed']
+                        ),
+                        'year_filed_diff': (
+                            cl_df.loc[cl_idx, 'year_filed']
+                            - ag_df.loc[ag_idx, 'year_filed']
+                        ),
+                        'CL_docket_count': len(cl_dockets),
+                        'AG_docket_count': len(ag_dockets),
                         'overlap_count': len(overlap),
-                        'cl_dockets': "; ".join(sorted(cl_dockets)),
-                        'ag_dockets': "; ".join(sorted(ag_dockets)),
+                        'CL_dockets': "; ".join(sorted(cl_dockets)),
+                        'AG_dockets': "; ".join(sorted(ag_dockets)),
                         'overlapping_dockets': "; ".join(sorted(overlap)),
+                        'AG_has_outcome': (
+                            pd.notna(ag_df.loc[ag_idx, 'district_outcome'])
+                            and pd.notna(ag_df.loc[ag_idx, 'disposition'])
+                        ),
                         'is_perfect_match': cl_dockets == ag_dockets,
-                        'cl_subset_of_ag': cl_dockets.issubset(ag_dockets),
-                        'ag_subset_of_cl': ag_dockets.issubset(cl_dockets),
+                        'CL_subset_of_AG': cl_dockets.issubset(ag_dockets),
+                        'AG_subset_of_CL': ag_dockets.issubset(cl_dockets),
                     })
 
     matches_df = pd.DataFrame(matches) if matches else pd.DataFrame()
@@ -143,10 +159,10 @@ def find_cases_with_multiple_matches(matches_df):
 
     cl_counts = matches_df.groupby('cluster_id').size()
     ag_counts = matches_df.groupby('adelglicks_id').size()
-    matches_df['cl_has_multiple_matches'] = matches_df['cluster_id'].map(
+    matches_df['CL_has_multiple_matches'] = matches_df['cluster_id'].map(
         cl_counts.gt(1)
     ).fillna(False)
-    matches_df['ag_has_multiple_matches'] = matches_df['adelglicks_id'].map(
+    matches_df['AG_has_multiple_matches'] = matches_df['adelglicks_id'].map(
         ag_counts.gt(1)
     ).fillna(False)
 
@@ -174,8 +190,8 @@ def compute_match_statistics(cl_df, ag_df, matches_df, cl_docket_sets, ag_docket
         stats['unique_cl_matched'] = matches_df['cluster_id'].nunique()
         stats['unique_ag_matched'] = matches_df['adelglicks_id'].nunique()
         stats['perfect_matches'] = matches_df['is_perfect_match'].sum()
-        stats['cl_subset_of_ag'] = matches_df['cl_subset_of_ag'].sum()
-        stats['ag_subset_of_cl'] = matches_df['ag_subset_of_cl'].sum()
+        stats['cl_subset_of_ag'] = matches_df['CL_subset_of_AG'].sum()
+        stats['ag_subset_of_cl'] = matches_df['AG_subset_of_CL'].sum()
         stats['cl_strict_subset_of_ag'] = stats['cl_subset_of_ag'] - stats['perfect_matches']
         stats['ag_strict_subset_of_cl'] = stats['ag_subset_of_cl'] - stats['perfect_matches']
         
@@ -301,7 +317,7 @@ def main():
     
     
     # Save match data to CSV
-    output_path = INTERMEDIATE_DATA_DIR / "CourtListener_AdelGlicks_matching.csv"
+    output_path = COURTLISTENER_AG_MATCHING_PATH
     output_path.parent.mkdir(parents=True, exist_ok=True)
     
     matches_df.to_csv(output_path, index=False)
