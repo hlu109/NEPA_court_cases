@@ -27,20 +27,6 @@ NEPA_court_cases/
     └── courtlistener_api_key.txt  # API key (not in git)
 ```
 
-## File Organization
-
-Each time you run `main.py`, a new timestamped directory is created under `data/opinions/`. Within that directory, each opinion gets its own folder containing all associated files (text and PDF).
-
-Example:
-```
-data/opinions/run_20251218_150652/
-  ├── opinion_1027273/
-  │   ├── opinion_1027273.txt
-  │   └── opinion_1027273.pdf
-  └── opinion_1034773/
-      ├── opinion_1034773.txt
-      └── opinion_1034773.pdf
-```
 ## API Key
 
 You need a CourtListener API key stored in `secret/courtlistener_api_key.txt`.
