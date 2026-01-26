@@ -35,18 +35,27 @@ def compute_performance(y_true: pd.Series, y_pred: pd.Series) -> dict:
             "macro_precision": np.nan,
             "macro_recall": np.nan,
             "macro_f1": np.nan,
+            "micro_precision": np.nan,
+            "micro_recall": np.nan,
+            "micro_f1": np.nan,
         }
 
     accuracy = accuracy_score(df["y_true"], df["y_pred"])
-    precision, recall, f1, _ = precision_recall_fscore_support(
+    macro_precision, macro_recall, macro_f1, _ = precision_recall_fscore_support(
         df["y_true"], df["y_pred"], average="macro", zero_division=0
+    )
+    micro_precision, micro_recall, micro_f1, _ = precision_recall_fscore_support(
+        df["y_true"], df["y_pred"], average="micro", zero_division=0
     )
     return {
         "n": len(df),
         "accuracy": accuracy,
-        "macro_precision": float(precision),
-        "macro_recall": float(recall),
-        "macro_f1": float(f1),
+        "macro_precision": float(macro_precision),
+        "macro_recall": float(macro_recall),
+        "macro_f1": float(macro_f1),
+        "micro_precision": float(micro_precision),
+        "micro_recall": float(micro_recall),
+        "micro_f1": float(micro_f1),
     }
 
 
@@ -63,7 +72,7 @@ def plot_confusion_matrix(
     if df.empty:
         return None
 
-    labels = sorted(pd.unique(pd.concat([df["y_true"], pd.Series(["mixed"])])))
+    labels = pd.unique(pd.concat([df["y_true"], pd.Series(["mixed", "UNK"])]))
     cm = confusion_matrix(df["y_true"], df["y_pred"], labels=labels)
     disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=labels)
     fig, ax = plt.subplots(figsize=(6, 6))
@@ -107,7 +116,7 @@ def evaluate_split(
     # Join ground truth
     merged = merged.merge(
         ground_truth_df[[ground_truth_id_col,
-                         "district_outcome", "disposition"]],
+                         "district_outcome", "disposition", "prevailing_party"]],
         left_on=assignments_id_col,
         right_on=ground_truth_id_col,
         how="left",
@@ -115,7 +124,7 @@ def evaluate_split(
 
     # Join LLM predictions
     merged = merged.merge(
-        pred_outcomes_df[["opinion_id", "district_outcome", "disposition"]],
+        pred_outcomes_df[["opinion_id", "district_outcome", "disposition", "prevailing_party"]],
         left_on="lead_opinion_id",
         right_on="opinion_id",
         how="left",
@@ -124,13 +133,13 @@ def evaluate_split(
 
     # Exclude rows with missing predictions from metrics
     missing_pred_mask = merged["district_outcome_pred"].isna(
-    ) & merged["disposition_pred"].isna()
+    ) & merged["disposition_pred"].isna() & merged["prevailing_party_pred"].isna()
     missing_predictions = int(missing_pred_mask.sum())
     eval_df = merged[~missing_pred_mask].copy()
 
     # Compute metrics
     metrics = []
-    for target in ["district_outcome", "disposition"]:
+    for target in ["district_outcome", "disposition", "prevailing_party"]:
         target_metrics = compute_performance(
             eval_df[f"{target}_true"],
             eval_df[f"{target}_pred"],
@@ -156,6 +165,10 @@ def run_val_eval(assignments_path: str, ground_truth_path: str, ground_truth_id_
                           val_merged["disposition_pred"],
                           title = "Disposition",
                           output_path = f"{confusion_matrix_path_prefix}_disposition.png")
+    plot_confusion_matrix(val_merged["prevailing_party_true"], 
+                          val_merged["prevailing_party_pred"],
+                          title = "Prevailing Party",
+                          output_path = f"{confusion_matrix_path_prefix}_prevailing_party.png")
     return val_metrics, val_merged
 
 
@@ -177,6 +190,10 @@ def run_test_eval(
                           test_merged["disposition_pred"],
                           title = "Disposition",
                           output_path = f"{confusion_matrix_path_prefix}_disposition.png")
+    plot_confusion_matrix(test_merged["prevailing_party_true"], 
+                          test_merged["prevailing_party_pred"],
+                          title = "Prevailing Party",
+                          output_path = f"{confusion_matrix_path_prefix}_prevailing_party.png")
     return test_metrics, test_merged
 
 def main():

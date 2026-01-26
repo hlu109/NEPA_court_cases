@@ -28,6 +28,7 @@ from utils.config import (
     INTERMEDIATE_DATA_DIR,
     OUTCOME_PREDICTIONS_DIR,
     CL_TRAIN_PREDICTIONS_PATH,
+    COURTLISTENER_METADATA_WITH_LLM_OUTCOMES_PATH,
 )
 
 
@@ -107,12 +108,19 @@ def clean_adelglicks_outcomes(df: pd.DataFrame) -> pd.DataFrame:
     df['decision'] = df['decision'].str.strip().str.lower()
     df['rev_aff'] = df['rev_aff'].str.strip().str.lower()
 
-    df['district_outcome'] = df['appellee'].map({ # appellee won in district court
-        'def': 'defendant',
-        'fed': 'defendant',
-        'p': 'plaintiff',
-        'cross': None # placeholder - handle later 
+    # TODO: we are just ignoring petitions that get denied/dismissed/granted for now because we cannot determine the prevailing party with the AdelGlicks data right now  
+    df['district_outcome'] = df['decision'].map({
+        'aff_def': 'defendant',
+        'aff_pl': 'plaintiff',
+        'rev_def': 'plaintiff',
+        'rev_pl': 'defendant',
+        'mixed': None,
+        "denied": None,
+        "granted": None,
+        "dismissed": None,
     })
+    
+
     df['disposition'] = df['rev_aff'].map({
         'aff': 'affirm',
         'rev': 'reverse',
@@ -124,10 +132,26 @@ def clean_adelglicks_outcomes(df: pd.DataFrame) -> pd.DataFrame:
     # if "decision" was granted, this correctly codes that the appellate court reversed the district court's decision (no change to coding needed)
     # if "decision" was dismissed, this seems more complicated, but we stick with the AdelGLicks coding for now 
 
+    # Create column for final party favored by appellate decision (plaintiff or defendant)
+    df['prevailing_party'] = df['decision'].map({
+        'aff_def': 'defendant',
+        'aff_pl': 'plaintiff',
+        'rev_def': 'defendant',
+        'rev_pl': 'plaintiff',
+        'mixed': 'mixed',
+        "denied": None,
+        "granted": None,
+        "dismissed": None,
+    }) 
+    # Note the "appellee" column is consistently wrong in AdelGlicks data so if there is a petition we don't know which party won in district court and thus can't code prevailing party for denied,granted, or dismissed petitions. 
+
+
     print("Unmapped district outcomes:")
     print(df['district_outcome'].isna().sum())
     print("Unmapped dispositions:")
     print(df['disposition'].isna().sum())
+    print("Unmapped prevailing parties:")
+    print(df['prevailing_party'].isna().sum())
     print("Total cases in AG data:", df.shape[0])
 
     return df
@@ -307,19 +331,29 @@ def parse_courtlistener_docket_string(docket_str: str) -> List[str]:
     # Normalize dash characters first
     docket_str = normalize_dash_characters(docket_str)
 
-    # Remove common prefixes
+    # Remove common prefixes and text patterns 
     prefixes = [
         r'Civil Action No\.\s*',
         r'Civil No\.\s*',
         r'Case No\.\s*',
         r'Docket\s+',
         r'Docket No\.\s*',
+        r'D.C. No\.\s*',
         r'DOCKETS \s+',
         r'Nos?\.\s*',
         r'Civ\.\s*A\.\s*',
+        r'CV-\s*'
     ]
+    # text_patterns = [
+    #     r'\s*\([^)]*\)\s*', # parenthetical info
+    #     r'-[A-Za-z]+$', # suffixes of the form "-XYZ" for some sequence of letters
+    #     r'(?:-)cv-',  # non-capturing group ensures we get a match for "-cv-" but only delete one of the dashes to preserve docket number format
+    # ]
     for prefix in prefixes:
         docket_str = re.sub(prefix, '', docket_str, flags=re.IGNORECASE)
+    # for text_pattern in text_patterns:
+    #     docket_str = re.sub(text_pattern, '', docket_str).strip()
+
 
     # Handle "Consolidated with" or "C/w" patterns
     consolidated_pattern = r'(?:Consolidated with|C/w)\s+'
@@ -374,8 +408,7 @@ def parse_courtlistener_docket_string(docket_str: str) -> List[str]:
     seen = set()
 
     for docket in dockets:
-        # Remove any trailing/leading whitespace, parenthetical info, and punctuation characters
-        docket = re.sub(r'\s*\([^)]*\)\s*', '', docket).strip()
+        # Remove punctuation characters
         docket = docket.strip('.,;')
 
         if docket and docket not in seen:
@@ -476,6 +509,82 @@ def clean_cluster_metadata(cluster_metadata_path: str,
     return cluster_df
 
 
+def infer_prevailing_party(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Infer prevailing party from district outcome and disposition.
+    """
+    assert "district_outcome" in df.columns, "district_outcome column not found in input CSV"
+    assert "disposition" in df.columns, "disposition column not found in input CSV"
+    df['prevailing_party'] = None 
+    df.loc[df['disposition'] == 'affirm', 'prevailing_party'] = df['district_outcome']
+    df.loc[df['disposition'] == 'reverse', 'prevailing_party'] = df['district_outcome'].map(
+        lambda x: 'defendant' if x == 'plaintiff' else 'plaintiff' if x == 'defendant' else None
+    )
+    df.loc[df['disposition'] == 'mixed', 'prevailing_party'] = 'mixed'
+    df.loc[df['disposition'] == 'UNK', 'prevailing_party'] = 'UNK'
+    return df
+
+
+def clean_courtlistener_outcomes():
+    """
+    Infer prevailing party from district outcome and disposition and save to CSV.
+    """
+    cl_df = pd.read_csv(LLM_OPINION_CODING_RAW_PATH)
+    cl_df = infer_prevailing_party(cl_df)
+
+    # reorder columns
+    cl_df = cl_df[["opinion_id", "district_outcome", "disposition", "prevailing_party", "model_id"]]
+
+    # save to CSV
+    LLM_OPINION_CODING_PATH.parent.mkdir(parents=True, exist_ok=True)
+    cl_df.to_csv(LLM_OPINION_CODING_PATH, index=False)
+    print(f"Saved cleaned CourtListener outcomes to {LLM_OPINION_CODING_PATH}")
+    return cl_df
+
+
+def merge_cluster_metadata_with_llm_outcomes(
+    cluster_metadata_path: str,
+    llm_outcomes_path: str,
+    output_path: str
+) -> pd.DataFrame:
+    """
+    Merge LLM-coded outcomes with cluster metadata.
+    
+    Args:
+        cluster_metadata_path: Path to cleaned cluster metadata CSV
+        llm_outcomes_path: Path to cleaned LLM opinion coding CSV
+        output_path: Path to save merged CSV
+        
+    Returns:
+        Merged DataFrame with cluster metadata and LLM outcomes
+    """
+    print("\nMerging LLM-coded outcomes with cluster metadata...")
+    cluster_df = pd.read_csv(cluster_metadata_path, dtype={"cluster_id": str, "lead_opinion_id": str})
+    llm_outcomes_df = pd.read_csv(llm_outcomes_path, dtype={"opinion_id": str})
+    
+    # Merge on lead_opinion_id from cluster metadata and opinion_id from LLM outcomes
+    merged_df = cluster_df.merge(
+        llm_outcomes_df,
+        left_on="lead_opinion_id",
+        right_on="opinion_id",
+        how="left",
+    )
+    
+    # Save merged data
+    output_path_obj = Path(output_path)
+    output_path_obj.parent.mkdir(parents=True, exist_ok=True)
+    merged_df.to_csv(output_path_obj, index=False, quoting=csv.QUOTE_NONNUMERIC)
+    print(f"Saved merged data to {output_path_obj}")
+    
+    # Print summary statistics
+    total_clusters = len(merged_df)
+    clusters_with_outcomes = merged_df["opinion_id"].notna().sum()
+    print(f"Total clusters: {total_clusters}")
+    print(f"Clusters with LLM outcomes: {clusters_with_outcomes} ({clusters_with_outcomes/total_clusters*100:.1f}%)")
+    
+    return merged_df
+
+
 def clean_courtlistener_clusters_main():
     # Find the most recent run directory
     # TODO: maybe move this to separate function or pass as parameter
@@ -494,6 +603,15 @@ def clean_courtlistener_clusters_main():
         cluster_metadata_path=str(cluster_metadata_path),
         opinion_metadata_path=str(opinion_metadata_path),
         output_path=str(COURTLISTENER_CLUSTER_CLEANED_PATH)
+    )
+
+    clean_courtlistener_outcomes() # save a copy of the LLM-coded outcomes and adds a column for prevailing party 
+
+    # Merge LLM-coded outcomes with cluster metadata
+    merge_cluster_metadata_with_llm_outcomes(
+        cluster_metadata_path=str(COURTLISTENER_CLUSTER_CLEANED_PATH),
+        llm_outcomes_path=str(LLM_OPINION_CODING_PATH),
+        output_path=str(COURTLISTENER_METADATA_WITH_LLM_OUTCOMES_PATH)
     )
 
     print("Done!")
@@ -972,6 +1090,19 @@ def merge_cl_train_with_outcomes(
         how="left",
     )
     
+    # Create column for final party favored by appellate decision (plaintiff or defendant)
+    merged['prevailing_party'] = None 
+    # if disposition is affirm, then prevailing party = district outcome
+    merged.loc[merged['disposition_pred'] == 'affirm', 'prevailing_party'] = merged['district_outcome_pred']
+    # if disposition is reverse, then prevailing party = opposite of district outcome
+    merged.loc[merged['disposition_pred'] == 'reverse', 'prevailing_party'] = merged['district_outcome_pred'].map(
+        lambda x: 'defendant' if x == 'plaintiff' else 'plaintiff'
+    )
+    # if disposition is mixed, then prevailing party set to mixed 
+    merged.loc[merged['disposition_pred'] == 'mixed', 'prevailing_party'] = 'mixed'
+    # if disposition is UNK, then prevailing party set to UNK
+    merged.loc[merged['disposition_pred'] == 'UNK', 'prevailing_party'] = None
+
     # Save output
     output_path.parent.mkdir(parents=True, exist_ok=True)
     merged.to_csv(output_path, index=False)
@@ -1031,8 +1162,8 @@ def main():
     clean_courtlistener_clusters_main()
     merge_cases_by_docket_main()
     assign_val_test_split_main()
-    flip_district_outcome() # temporary workaround because it seems like the LLM coded everything the opposite way 
-    merge_cl_train_with_outcomes()
+    # flip_district_outcome() # temporary workaround because it seems like the LLM coded everything the opposite way 
+    merge_cl_train_with_outcomes() # saves a copy of courtlistener data excluded from the val/test sets and merges with predictions 
 
 
 if __name__ == "__main__":
