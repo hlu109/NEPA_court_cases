@@ -38,5 +38,5 @@ The project uses a separate data directory (outside the code repository) with th
    pip install -r requirements.txt
    ```
 - Configure paths in `src/utils/config.py` to match local setup.
-- To run code in 01_data/ and 02_coding_cases, you'll need a personal API key for CourtListener and Google Cloud/Google Gemini respectively, which should be stored in `secret/COURTLISTENER_API_KEY.txt` and `secret/GEMINI_API_KEY.txt`.
+- To run code in `01_data/` and `02_coding_cases/`, you'll need a personal API key for CourtListener and Google Cloud/Google Gemini respectively. The API key should be stored in `secret/COURTLISTENER_API_KEY.txt` and `secret/GEMINI_API_KEY.txt`. They are omitted from git version control as they should be treated like passcodes. 
 
