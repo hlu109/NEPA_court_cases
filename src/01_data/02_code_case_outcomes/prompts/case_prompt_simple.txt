@@ -1,4 +1,4 @@
-Extract structured data from this file and return it following the **CaseSimple data structure**.
+Extract structured data from this file and return it following the **CaseWithOutcomes data structure**.
 
 ---
 

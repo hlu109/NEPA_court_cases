@@ -5,9 +5,8 @@ from google import genai
 import os
 
 # Load the user-defined files -----
-
-import config_outcomes as config
-from PagesLib.CaseWithOutcomes import case_to_dataframe
+import config_judges as config
+from PagesLib.CaseWithJudges import case_to_dataframe
 from utils.gemini_digitizer import process_cases
 from utils.gemini_logging import write_log, log_config
 
@@ -15,7 +14,6 @@ from utils.gemini_logging import write_log, log_config
 
 
 def main():
-    # TODO: pass in config here instead of importing?
     # --------------------------------------------------------------------------
     # -- Execution -------------------------------------------------------------
     # --------------------------------------------------------------------------
@@ -44,15 +42,12 @@ def main():
     print(f"Saving output in {config.results_dir}")
 
     # Create a client -----------------------------------------
-
     # get API key
     with open("secret/GEMINI_API_KEY.txt", "r", encoding="utf-8") as file:
         api_key = file.read()
         print("Successfully loaded API key")
 
-    client = genai.Client(api_key=api_key,
-                          #   http_options={'api_version': 'v1'}
-                          )
+    client = genai.Client(api_key=api_key)
     print("Successfully loaded Gemini AI client with API key")
 
     # Read in the structured prompt
@@ -76,10 +71,6 @@ def main():
                   debug=False)
     write_log("PROCESS COMPLETE", config.log_dir, config.identifier)
     print("\n Digitizing task complete !! ")
-
-    # --------------------------------------------------------------------------
-    # --------------------------------------------------------------------------
-    # --------------------------------------------------------------------------
 
 
 if __name__ == "__main__":
