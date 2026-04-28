@@ -8,30 +8,23 @@ from datetime import datetime
 ################################################################################
 # SET CODE LOCATION -----------------------------------------------------------
 
-# loc = "yale_server"
-loc = "local"
+loc = "yale_server"
+# loc = "local"
 
 if loc == "local":
     BASE_DIR = Path(
         "C:/Users/hl2266/YLS Dropbox/Hannah Lu/shared/NEPA Court Cases/")
     CODE_DIR = BASE_DIR / "Code" / "NEPA_court_cases"
+    DATA_ROOT_DIR = BASE_DIR / "Data"
 elif loc == "yale_server":
-    BASE_DIR = Path(
-        "/home/hl2266/project_pi_zdl3/hl2266/code/NEPA_court_cases")
+    BASE_DIR = Path("/home/hl2266/project_pi_zdl3/hl2266/NEPA court case project")
+    CODE_DIR = BASE_DIR / "Code" / "NEPA_court_cases"
+    DATA_ROOT_DIR = BASE_DIR / "Data"
 else:
     raise ValueError("Invalid location specified")
 
 ################################################################################
 # DATA DIRECTORY --------------------------------------------------------------
-
-
-# Data directory structure (separate from code directory)
-if loc == "local":
-    DATA_ROOT_DIR = BASE_DIR / "Data"
-elif loc == "yale_server":
-    pass # TODO: update 
-else:
-    raise ValueError("Invalid location specified")
 
 # Raw and Intermediate data directories
 RAW_DATA_DIR = DATA_ROOT_DIR / "Raw"
