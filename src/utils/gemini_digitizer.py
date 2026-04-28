@@ -7,11 +7,11 @@ import pandas as pd
 
 def upload_to_API(genai_client, file_path: str):
     """
-    Uploads HTML court case opinion to the Gemini API.
+    Uploads court case opinion file to the Gemini API.
 
     Parameters:
         genai_client: Gemini API client.
-        file_path (str): Path to the input HTML file.
+        file_path (str): Path to the input opinion file.
 
     Returns:
         object: Uploaded file object from the Gemini API.
@@ -45,7 +45,7 @@ def extract_case_data(genai_client,
                       model_id: str,
                       debug=False):
     """
-    Extracts structured data from a court case HTML using the Gemini API.
+    Extracts structured data from a court case opinion file using the Gemini API.
 
     Parameters:
         genai_client: Gemini API client.
@@ -145,7 +145,7 @@ def process_cases(genai_client,
         outfile_path (str): Path to save extracted data.
         intermediate_dir (str): Folder for intermediate outputs.
         to_dataframe_fn: Function converting parsed schema object to dataframe.
-        file_extension (str): Opinion file extension inside each opinion_XXX folder (for example, "html" or "pdf").
+        file_extension (str): Opinion file extension inside each opinion_XXX folder ("html" or "pdf").
         case_ids (list): Optional list of specific case IDs to process. If None, processes all cases.
         debug (bool): Enables debug logging.
 
@@ -173,13 +173,31 @@ def process_cases(genai_client,
         print(f"\nProcessing case {case_id} ({i + 1}/{total_cases})...")
         case_folder = os.path.join(input_dir, f"opinion_{case_id}")
         opinion_path = os.path.join(case_folder, f"opinion_{case_id}.{file_extension}")
+        file_source_indicator = ""
 
         # Check if opinion file exists
         if not os.path.exists(opinion_path):
-            print(
-                f"WARNING: .{file_extension} file not found for case {case_id}, skipping..."
-            )
-            continue
+            if file_extension == "pdf":
+                fallback_html_path = os.path.join(case_folder, f"opinion_{case_id}.html")
+                if os.path.exists(fallback_html_path):
+                    print(
+                        f"WARNING: .pdf file not found for case {case_id}; using .html fallback."
+                    )
+                    opinion_path = fallback_html_path
+                    file_source_indicator = "pdf not found, html used"
+                else:
+                    print(
+                        f"WARNING: .pdf file not found for case {case_id}, and .html fallback also missing; skipping..."
+                    )
+                    file_source_indicator = "pdf not found, html not found"
+                    continue
+            else:
+                print(
+                    f"WARNING: .{file_extension} file not found for case {case_id}, skipping..."
+                )
+                continue
+        elif file_extension == "pdf":
+            file_source_indicator = "pdf used"
 
         retries = 0
         success = False
@@ -211,6 +229,7 @@ def process_cases(genai_client,
                     df = to_dataframe_fn(result)
                     df["opinion_id"] = case_id
                     df["model_id"] = model_id
+                    df["file_source_indicator"] = file_source_indicator
 
                     # Immediately delete the uploaded file to avoid storage limits
                     try:
@@ -242,8 +261,8 @@ def process_cases(genai_client,
 
         total_time_elapsed = time.time() - start_time
         avg_time_per_case = total_time_elapsed / (i + 1)
-        print(f"Total time elapsed: {total_time_elapsed:.2f}s")
-        print(f"Average time per case so far: {avg_time_per_case:.2f}s")
+        print(f"Total time elapsed: {total_time_elapsed / 3600:.2f} hrs")
+        print(f"Average time per case so far: {avg_time_per_case:.2f} s")
 
     if all_dataframes:
         final_dataframe = pd.concat(all_dataframes, ignore_index=True)
