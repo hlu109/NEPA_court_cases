@@ -17,7 +17,7 @@ if loc == "local":
     CODE_DIR = BASE_DIR / "Code" / "NEPA_court_cases"
     DATA_ROOT_DIR = BASE_DIR / "Data"
 elif loc == "yale_server":
-    BASE_DIR = Path("/home/hl2266/project_pi_zdl3/hl2266/NEPA court case project")
+    BASE_DIR = Path("/nfs/roberts/project/pi_zdl3/hl2266/NEPA court case project")
     CODE_DIR = BASE_DIR / "Code" / "NEPA_court_cases"
     DATA_ROOT_DIR = BASE_DIR / "Data"
 else:

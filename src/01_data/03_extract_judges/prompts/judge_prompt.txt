@@ -12,12 +12,12 @@ Extract structured data from this file and return it following the **CaseWithJud
 ---
 
 ### **Extraction Rules**
-- **panel_judges**: A list of the names of **all appellate (circuit court) judges** who presided over this case. Include all judges on the panel: the judge who wrote the majority opinion, any judges who wrote concurrences or dissents, and any judges who joined without writing separately. Judges are typically identified in one or more of the following locations near the top of the opinion:
+- **panel_judges**: A list of the names of **all appellate (circuit court) judges** who presided over this case. Include all judges on the panel: the judge who wrote the majority opinion, any judges who wrote concurrences or dissents, and any judges who joined without writing separately. If the opinion was en banc, return a list with a single entry saying "EN BANC". Judges are typically identified in one or more of the following locations near the top of the opinion:
     - A "Before:" line listing the full panel, e.g. "Before: WILKINS and KATSAS, Circuit Judges, and ROGERS, Senior Circuit Judge."
     - An author byline, e.g. "KATSAS, Circuit Judge:" or "SENTELLE, Chief Judge:"
     - An attribution line, e.g. "Opinion for the Court filed by Circuit Judge HENDERSON." or "Judge DUNCAN wrote the opinion, in which Judge MOTZ and Judge KING joined."
 
-- **opinion_authors**: A list of the names of all judges who **wrote** the opinion. If the opinion is per curiam (written collectively, no single named author), return a list with a single entry saying "PER CURIAM". authors are typically identified by:
+- **opinion_authors**: A list of the names of all judges who **wrote** the opinion. If the opinion is per curiam (written collectively, no single named author), return a list with a single entry saying "PER CURIAM". If the opinion was written en banc, return a list with a single entry saying "EN BANC". authors are typically identified by:
     - An author byline at the start of the opinion, e.g. "KATSAS, Circuit Judge:" or "SENTELLE, Chief Judge:"
     - An attribution line, e.g. "Opinion for the Court filed by Circuit Judge HENDERSON." or "Judge DUNCAN wrote the opinion..."
 
