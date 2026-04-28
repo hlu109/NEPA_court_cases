@@ -67,43 +67,6 @@ OUTPUT_FILE_NAME = OUTPUT_FILE_BASE_NAME + "_" + identifier + ".csv"
 results_dir = gemini_dir / (OUTPUT_FILE_BASE_NAME + "_" + identifier)
 temp_dir = results_dir / "temp"
 
-# ------------------------------------------------------------------------------
-
-# TODO: move this to utils
-# Define logging function
-
-def write_log(message, log_dir=log_dir):
-    if not os.path.exists(log_dir):
-        os.makedirs(log_dir)
-    file_path = os.path.join(log_dir, f"log_{identifier}.txt")
-    with open(file_path, "a", encoding="utf-8") as file:
-        timestamp = datetime.now().strftime("%H%M:%S")
-        file.write(f"[{timestamp}] {message}\n\n")
-
-
-def log_config(log_dir=log_dir):
-    if not os.path.exists(log_dir):
-        os.makedirs(log_dir)
-
-    # Save text of gemini prompt--------
-    with open(prompt_text_path, "r") as file:
-        prompt_text = file.read()
-    with open(os.path.join(log_dir, f"prompt_text_{identifier}.txt"), "a",
-              encoding="utf-8") as file:
-        file.write(prompt_text)
-
-    # Save parameter values ----------
-    file_path = os.path.join(log_dir, f"log_{identifier}.txt")
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-    with open(file_path, "a", encoding="utf-8") as file:
-        file.write(f"[{timestamp}] \n\n")
-        file.write(f"CONFIG PARAMETERS\n\n")
-        file.write(f"Input directory: {INPUT_DIR}\n")
-        file.write(f"Case IDs filter: {case_ids if case_ids else 'All cases'}\n")
-        file.write(f"Prompt text file: {prompt_text_name}\n")
-        file.write(f"Gemini model: {gemini_model_id}\n\n")
-
 
 # ------------------------------------------------------------------------------
 # -----------------------------------------------------------------------------

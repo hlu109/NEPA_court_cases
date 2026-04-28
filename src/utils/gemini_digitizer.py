@@ -3,10 +3,6 @@ import time
 import requests
 import os
 import pandas as pd
-from PagesLib.Case import case_to_dataframe
-# ------------------------------------------------------------------------------
-# -- Define functions ----------------------------------------------------------
-# ------------------------------------------------------------------------------
 
 
 def upload_to_API(genai_client, file_path: str):
@@ -133,6 +129,7 @@ def process_cases(genai_client,
                   model_id: str,
                   outfile_path: str,
                   intermediate_dir: str,
+                  to_dataframe_fn,
                   case_ids: list = None,
                   debug=False):
     """
@@ -146,6 +143,7 @@ def process_cases(genai_client,
         model_id (str): Gemini model ID.
         outfile_path (str): Path to save extracted data.
         intermediate_dir (str): Folder for intermediate outputs.
+        to_dataframe_fn: Function converting parsed schema object to dataframe.
         case_ids (list): Optional list of specific case IDs to process. If None, processes all cases.
         debug (bool): Enables debug logging.
 
@@ -165,7 +163,6 @@ def process_cases(genai_client,
     total_cases = len(case_ids)
 
     all_dataframes = []
-    all_cases = []
     max_retries = 5
 
     for i, case_id in enumerate(case_ids):
@@ -184,6 +181,7 @@ def process_cases(genai_client,
         retries = 0
         success = False
         prompt = prompt_text
+        df = None
 
         while retries < max_retries and not success:
             try:
@@ -199,12 +197,6 @@ def process_cases(genai_client,
                 success = True
 
                 if result:
-                    # # manually construct the full Case dataframe because we want to add case_id
-                    # case_final = CaseSimple(
-                    #     opinion_id=case_id,
-                    #     disposition=result.disposition,
-                    #     district_outcome=result.district_outcome,
-                    # )
                     # save intermediate data structure to json
                     json_path = os.path.join(intermediate_dir,
                                              f"coded_opinion_{case_id}.json")
@@ -213,7 +205,7 @@ def process_cases(genai_client,
                         f"  Saved intermediate JSON of coded opinion to {json_path}"
                     )
 
-                    df = case_to_dataframe(result)
+                    df = to_dataframe_fn(result)
                     df["opinion_id"] = case_id
                     df["model_id"] = model_id
 
@@ -242,8 +234,8 @@ def process_cases(genai_client,
             # (EXCEPTION occurred (non-retryable): 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'Resource exhausted. Please try again later. Please refer to https://cloud.google.com/vertex-ai/generative-ai/docs/error-code-429 for more details.', 'status': 'RESOURCE_EXHAUSTED'}}
 
         # Combine output
-        all_dataframes.append(df)
-        # all_cases.append(case_final)
+        if df is not None:
+            all_dataframes.append(df)
 
     if all_dataframes:
         final_dataframe = pd.concat(all_dataframes, ignore_index=True)
@@ -253,7 +245,3 @@ def process_cases(genai_client,
         return final_dataframe
     else:
         return None
-
-
-# ------------------------------------------------------------------------------
-# ------------------------------------------------------------------------------

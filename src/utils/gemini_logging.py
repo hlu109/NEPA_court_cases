@@ -1,0 +1,40 @@
+import os
+from datetime import datetime
+
+
+def write_log(message, log_dir, identifier):
+    if not os.path.exists(log_dir):
+        os.makedirs(log_dir)
+    file_path = os.path.join(log_dir, f"log_{identifier}.txt")
+    with open(file_path, "a", encoding="utf-8") as file:
+        timestamp = datetime.now().strftime("%H%M:%S")
+        file.write(f"[{timestamp}] {message}\n\n")
+
+
+def log_config(prompt_text_path,
+               gemini_model_id,
+               identifier,
+               log_dir,
+               input_dir=None,
+               case_ids=None):
+    if not os.path.exists(log_dir):
+        os.makedirs(log_dir)
+
+    # Save text of gemini prompt--------
+    with open(prompt_text_path, "r", encoding="utf-8") as file:
+        prompt_text = file.read()
+    with open(os.path.join(log_dir, f"prompt_text_{identifier}.txt"), "a",
+              encoding="utf-8") as file:
+        file.write(prompt_text)
+
+    # Save parameter values ----------
+    file_path = os.path.join(log_dir, f"log_{identifier}.txt")
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    with open(file_path, "a", encoding="utf-8") as file:
+        file.write(f"[{timestamp}] \n\n")
+        file.write(f"CONFIG PARAMETERS\n\n")
+        file.write(f"Input directory: {input_dir}\n")
+        file.write(f"Case IDs filter: {case_ids if case_ids else 'All cases'}\n")
+        file.write(f"Prompt text file: {prompt_text_path}\n")
+        file.write(f"Gemini model: {gemini_model_id}\n\n")

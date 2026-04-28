@@ -3,15 +3,13 @@
 # ------------------------------------------------------------------------------
 from google import genai
 import os
-from datetime import datetime
-import pandas as pd
 
 # Load the user-defined files -----
 
 import config
-from config import write_log
-import digitizer 
-from eval import eval_performance
+from PagesLib.Case import case_to_dataframe
+from utils.gemini_digitizer import process_cases
+from utils.gemini_logging import write_log, log_config
 
 # Note: API requires an API key, saved in secret/GEMINI_API_KEY.txt
 
@@ -33,7 +31,14 @@ def main():
         os.makedirs(config.temp_dir)
 
     # Log parameters used -----------------------------------------
-    config.log_config()
+    log_config(
+        prompt_text_path=config.prompt_text_path,
+        gemini_model_id=config.gemini_model_id,
+        identifier=config.identifier,
+        log_dir=config.log_dir,
+        input_dir=config.INPUT_DIR,
+        case_ids=config.case_ids,
+    )
 
     print(f"Using task prompt in {config.prompt_text_name}")
     print(f"Saving output in {config.results_dir}")
@@ -59,16 +64,17 @@ def main():
     print(f"Outpath set to: {outpath}")
 
     # Run digitizer process ------------------------------------------
-    df = digitizer.process_cases(client,
-                                 input_dir=config.INPUT_DIR,
-                                 data_struct=config.page_schema,
-                                 prompt_text=task,
-                                 model_id=config.gemini_model_id,
-                                 outfile_path=outpath,
-                                 intermediate_dir=config.temp_dir,
-                                 case_ids=config.case_ids if hasattr(config, 'case_ids') else None,
-                                 debug=False)
-    write_log("PROCESS COMPLETE")
+    process_cases(client,
+                  input_dir=config.INPUT_DIR,
+                  data_struct=config.page_schema,
+                  prompt_text=task,
+                  model_id=config.gemini_model_id,
+                  outfile_path=outpath,
+                  intermediate_dir=config.temp_dir,
+                  to_dataframe_fn=case_to_dataframe,
+                  case_ids=config.case_ids if hasattr(config, 'case_ids') else None,
+                  debug=False)
+    write_log("PROCESS COMPLETE", config.log_dir, config.identifier)
     print("\n Digitizing task complete !! ")
 
     # --------------------------------------------------------------------------

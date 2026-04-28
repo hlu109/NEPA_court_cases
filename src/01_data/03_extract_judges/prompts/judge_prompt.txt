@@ -1,0 +1,41 @@
+Extract structured data from this file and return it following the **JudgeExtraction data structure**.
+
+---
+
+### **General Instructions**
+- The html file contains the complete text of an **opinion from a U.S. appellate circuit court**.
+- Each case is litigation related to the National Environmental Policy Act.
+- Use knowledge of the American legal system to inform your reasoning.
+- **All letters are in the English alphabet and all words and names are in the English language.**
+- **Do not make up any false information.**
+
+---
+
+### **Extraction Rules**
+
+- **Judges**: The names of the **appellate (circuit court) judges** who presided over this case.
+  - Include all judges on the panel: the judge who wrote the majority opinion, any judges who wrote concurrences or dissents, and any judges who joined without writing separately.
+  - Judges are typically identified in one or more of the following locations near the top of the opinion:
+      - A "Before:" line listing the full panel, e.g. "Before: WILKINS and KATSAS, Circuit Judges, and ROGERS, Senior Circuit Judge."
+      - An author byline, e.g. "KATSAS, Circuit Judge:" or "SENTELLE, Chief Judge:"
+      - An attribution line, e.g. "Opinion for the Court filed by Circuit Judge HENDERSON." or "Judge DUNCAN wrote the opinion, in which Judge MOTZ and Judge KING joined."
+  - **Do NOT include district court judges**, even if they appear in the opinion (e.g. sitting by designation on the panel, or referenced as the judge who ruled below). District judges are identifiable by the title "District Judge" or "U.S.D.J.".
+  - **Do NOT include** attorneys, agency officials, or any other proper names that are not appellate judges.
+  - If the **full name** of a judge is given (e.g. "Karen LeCraft Henderson", "Harry T. Edwards"), use the full name.
+  - If only a **last name** is given (e.g. "KATSAS", "ROGERS"), use just the last name.
+  - Do not include judicial titles (e.g. "Circuit Judge", "Senior Circuit Judge", "Chief Judge") in the output names.
+
+- If you cannot identify any judges from the text, return an empty string.
+
+---
+
+### **Output Format**
+- Return a **single string** containing all judge names, separated by **"; "** (semicolon followed by a space).
+- Order the names as they appear in the opinion (panel order, then opinion authors).
+- Example: `"WILKINS; KATSAS; ROGERS"` or `"Karen LeCraft Henderson; SENTELLE; Harry T. Edwards"`
+
+---
+
+### **Important Constraints**
+- **Do NOT make up any information that does not appear explicitly in the text.**
+- Extract only from the opinion itself — do not infer judge names from case citations or quoted prior opinions.
