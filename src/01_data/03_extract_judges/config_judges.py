@@ -44,8 +44,8 @@ page_schema = CaseWithJudges
 # Case Parameters -------------------------------------------
 # Case filtering (optional) - if None, processes all cases in INPUT_DIR
 # Example: ["10033657", "1027273"] to process specific cases
-case_ids = None
-# case_ids = ["5738", "2471"]
+# case_ids = None
+case_ids = ["5738", "2471", "19314", "75867", "1395650", "8959656"]
 
 # ------------------------------------------------------------------------------
 # END OF SET PARAMETERS --------------------------------------------------------

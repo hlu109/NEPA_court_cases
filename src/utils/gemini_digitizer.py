@@ -130,10 +130,11 @@ def process_cases(genai_client,
                   outfile_path: str,
                   intermediate_dir: str,
                   to_dataframe_fn,
+                  file_extension: str = "html",
                   case_ids: list = None,
                   debug=False):
     """
-    Extracts structured data from court case HTML files and saves results.
+    Extracts structured data from court case opinion files and saves results.
 
     Parameters:
         genai_client: Gemini API client.
@@ -144,6 +145,7 @@ def process_cases(genai_client,
         outfile_path (str): Path to save extracted data.
         intermediate_dir (str): Folder for intermediate outputs.
         to_dataframe_fn: Function converting parsed schema object to dataframe.
+        file_extension (str): Opinion file extension inside each opinion_XXX folder (for example, "html" or "pdf").
         case_ids (list): Optional list of specific case IDs to process. If None, processes all cases.
         debug (bool): Enables debug logging.
 
@@ -169,12 +171,12 @@ def process_cases(genai_client,
         # add counter for cases processed
         print(f"\nProcessing case {case_id} ({i + 1}/{total_cases})...")
         case_folder = os.path.join(input_dir, f"opinion_{case_id}")
-        html_path = os.path.join(case_folder, f"opinion_{case_id}.html")
+        opinion_path = os.path.join(case_folder, f"opinion_{case_id}.{file_extension}")
 
-        # Check if HTML file exists
-        if not os.path.exists(html_path):
+        # Check if opinion file exists
+        if not os.path.exists(opinion_path):
             print(
-                f"WARNING: HTML file not found for case {case_id}, skipping..."
+                f"WARNING: .{file_extension} file not found for case {case_id}, skipping..."
             )
             continue
 
@@ -187,8 +189,8 @@ def process_cases(genai_client,
             try:
                 print(f"\t(Attempt {retries + 1})...")
 
-                # Upload HTML file
-                uploaded_file = upload_to_API(genai_client, html_path)
+                # Upload opinion file
+                uploaded_file = upload_to_API(genai_client, opinion_path)
 
                 # Extract case data
                 result = extract_case_data(genai_client, uploaded_file,

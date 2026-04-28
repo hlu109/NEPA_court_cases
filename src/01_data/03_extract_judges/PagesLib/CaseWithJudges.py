@@ -4,8 +4,11 @@ from typing import List
 
 
 class CaseWithJudges(BaseModel):
-    judges: List[str] = Field(
-        description="List of appellate judge names in panel order."
+    panel_judges: List[str] = Field(
+        description="List of all appellate judge names on the panel, in panel order."
+    )
+    opinion_authors: List[str] = Field(
+        description="List of judge name(s) who authored this specific opinion (majority, concurrence, or dissent)."
     )
 
     def save_json(self, file_path: str):
@@ -23,8 +26,10 @@ def _serialize_judges(judges: List[str]) -> str:
 def case_to_dataframe(case: CaseWithJudges) -> pd.DataFrame:
     """Convert a CaseWithJudges object to a dataframe."""
     data = {
-        "judges": _serialize_judges(case.judges),
-        "judge_count": len(case.judges),
+        "panel_judges": _serialize_judges(case.panel_judges),
+        "panel_judge_count": len(case.panel_judges),
+        "opinion_authors": _serialize_judges(case.opinion_authors),
+        "opinion_author_count": len(case.opinion_authors),
     }
     df = pd.DataFrame([data])
     return df
@@ -35,8 +40,10 @@ def cases_to_dataframe(cases: List[CaseWithJudges]) -> pd.DataFrame:
     data = []
     for case in cases:
         data.append({
-            "judges": _serialize_judges(case.judges),
-            "judge_count": len(case.judges),
+            "panel_judges": _serialize_judges(case.panel_judges),
+            "panel_judge_count": len(case.panel_judges),
+            "opinion_authors": _serialize_judges(case.opinion_authors),
+            "opinion_author_count": len(case.opinion_authors),
         })
     df = pd.DataFrame(data)
     return df

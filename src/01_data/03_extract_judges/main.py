@@ -3,8 +3,13 @@
 # ------------------------------------------------------------------------------
 from google import genai
 import os
+import sys
+from pathlib import Path
 
-# Load the user-defined files -----
+# Add project root to Python path to allow imports from src.utils
+project_root = Path(__file__).parent.parent.parent
+sys.path.insert(0, str(project_root))
+
 import config_judges as config
 from PagesLib.CaseWithJudges import case_to_dataframe
 from utils.gemini_digitizer import process_cases
@@ -67,6 +72,7 @@ def main():
                   outfile_path=outpath,
                   intermediate_dir=config.temp_dir,
                   to_dataframe_fn=case_to_dataframe,
+                  file_extension="pdf",
                   case_ids=config.case_ids if hasattr(config, 'case_ids') else None,
                   debug=False)
     write_log("PROCESS COMPLETE", config.log_dir, config.identifier)

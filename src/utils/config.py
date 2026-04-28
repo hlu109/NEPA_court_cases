@@ -13,7 +13,8 @@ loc = "local"
 
 if loc == "local":
     BASE_DIR = Path(
-        "C:/Users/hl2266/YLS Dropbox/Hannah Lu/NEPA Court Cases/Code/NEPA_court_cases")
+        "C:/Users/hl2266/YLS Dropbox/Hannah Lu/shared/NEPA Court Cases/")
+    CODE_DIR = BASE_DIR / "Code" / "NEPA_court_cases"
 elif loc == "yale_server":
     BASE_DIR = Path(
         "/home/hl2266/project_pi_zdl3/hl2266/code/NEPA_court_cases")
@@ -26,8 +27,7 @@ else:
 
 # Data directory structure (separate from code directory)
 if loc == "local":
-    DATA_ROOT_DIR = Path(
-        "C:/Users/hl2266/YLS Dropbox/Hannah Lu/NEPA Court Cases/Data/")
+    DATA_ROOT_DIR = BASE_DIR / "Data"
 elif loc == "yale_server":
     pass # TODO: update 
 else:
@@ -41,6 +41,8 @@ INTERMEDIATE_DATA_DIR = DATA_ROOT_DIR / "Intermediate"
 ADELGLICKS_RAW_PATH = RAW_DATA_DIR / "Adelman Glicksman/data/NEPA Lit Circuit WL Sample-Combo Supp-Coded Final 2001-15 2.7.24.xlsx"
 ADELGLICKS_SHEET_NAME = "NEPA Circuit Data"
 COURTLISTENER_METADATA_DIR = RAW_DATA_DIR / "CourtListener metadata"
+COURTLISTENER_OPINIONS_BASE_DIR = RAW_DATA_DIR / "CourtListener opinion download"
+JUDGES_OUTPUT_DIR = INTERMEDIATE_DATA_DIR / "Judges"
 
 # Output paths for cleaned datasets
 CLEANED_DATASETS_DIR = INTERMEDIATE_DATA_DIR / "Cleaned Datasets"
@@ -77,7 +79,7 @@ CURR_OPINIONS_DIR = RUN_DIR / "opinions"
 
 
 # API Configuration
-API_KEY_PATH = BASE_DIR / "secret" / "COURTLISTENER_API_KEY.txt"
+API_KEY_PATH = CODE_DIR / "secret" / "COURTLISTENER_API_KEY.txt"
 with open(API_KEY_PATH) as f:
     API_KEY = f.read().strip()
 
@@ -97,6 +99,7 @@ def setup_directories():
     """Create project directory structure"""
     directories = [
         BASE_DIR,
+        CODE_DIR,
         DATA_DIR,
         RUN_DIR,
         CURR_OPINIONS_DIR,

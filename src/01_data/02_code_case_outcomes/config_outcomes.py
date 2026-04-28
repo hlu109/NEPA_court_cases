@@ -39,7 +39,7 @@ log_dir = OUTPUT_DIR / "gemini_logs"
 
 # SET GEMINI PROMPT ------------------------------------------------------------
 # Indicate the file name for the prompt to use
-prompt_text_name = "case_prompt_simple.txt"
+prompt_text_name = "case_outcome_prompt.txt"
 prompt_text_path = CODE_DIR / "src" / "01_data" / "02_code_case_outcomes" / "prompts" / prompt_text_name
 
 # Set Case Schema -----------------------------------
