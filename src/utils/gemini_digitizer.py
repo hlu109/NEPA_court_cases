@@ -166,6 +166,7 @@ def process_cases(genai_client,
 
     all_dataframes = []
     max_retries = 5
+    start_time = time.time()
 
     for i, case_id in enumerate(case_ids):
         # add counter for cases processed
@@ -238,6 +239,11 @@ def process_cases(genai_client,
         # Combine output
         if df is not None:
             all_dataframes.append(df)
+
+        total_time_elapsed = time.time() - start_time
+        avg_time_per_case = total_time_elapsed / (i + 1)
+        print(f"Total time elapsed: {total_time_elapsed:.2f}s")
+        print(f"Average time per case so far: {avg_time_per_case:.2f}s")
 
     if all_dataframes:
         final_dataframe = pd.concat(all_dataframes, ignore_index=True)
