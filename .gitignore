@@ -4,6 +4,9 @@
 # data files 
 /data/*
 
+# generated outputs 
+/outputs/*
+
 # random Windows files 
 desktop.ini 
 
