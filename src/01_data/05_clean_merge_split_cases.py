@@ -4,11 +4,17 @@ Clean court case datasets, harmonize variable codings, and match cases by their 
 
 import csv
 import re
-from pathlib import Path
 from typing import List
 # from sklearn.model_selection import train_test_split
 import pandas as pd
 import numpy as np
+import sys
+from pathlib import Path
+
+# Add project root to Python path to allow imports from src.utils
+project_root = Path(__file__).parent.parent
+sys.path.insert(0, str(project_root))
+
 
 from utils.config import (
     INTERMEDIATE_DATA_DIR,
@@ -30,6 +36,7 @@ from utils.config import (
     LLM_JUDGES_CLF_PATH,
     CL_TRAIN_PREDICTIONS_PATH,
     COURTLISTENER_METADATA_W_FTRS_PATH,
+    USGOV_PL_PATH
 )
 
 
@@ -470,19 +477,18 @@ def clean_courtlistener_dockets(
     return df
 
 
-def drop_nonNEPA_cases(df: pd.DataFrame, path: str) -> pd.DataFrame:
+def drop_nonNEPA_cases(df: pd.DataFrame) -> pd.DataFrame:
     """
     Drop CourtListener cases that Maggie marked as not NEPA related.
 
     Args:
         df: Input cluster metadata dataframe.
-        path: Path to Maggie's CSV containing include_in_analysis and cluster_id columns.
 
     Returns:
         Filtered dataframe with non-NEPA cases removed.
     """
     df = df.copy()
-    mb_df = pd.read_csv(path)
+    mb_df = pd.read_csv(USGOV_PL_PATH, encoding = "latin-1") # utf-8 encoding doesn't work for some reason (can't decode byte 0xd5 in position 47954)
 
     non_nepa_cluster_ids = mb_df.loc[
         mb_df["include_in_analysis"] == 0, "cluster_id"
@@ -517,10 +523,7 @@ def clean_cluster_metadata(cluster_metadata_path: str,
     opinion_df = pd.read_csv(opinion_metadata_path)
 
     # handle cases with US gov plaintiffs  
-    cluster_df = drop_nonNEPA_cases(
-        cluster_df,
-        path=INTERMEDIATE_DATA_DIR / "usgov_plaintiffs_MB_04022026.csv",
-    )
+    cluster_df = drop_nonNEPA_cases(cluster_df)
 
     # Clean docket numbers
     cluster_df = clean_courtlistener_dockets(
@@ -557,7 +560,7 @@ def infer_prevailing_party(df: pd.DataFrame) -> pd.DataFrame:
     Infer prevailing party from district outcome and disposition, then computes univariate scores. 
     """
 
-    assert "cluster_id" in df.columns, "cluster_id column not found in input CSV"
+    assert "opinion_id" in df.columns, "opinion_id column not found in input CSV"
     assert "district_outcome" in df.columns, "district_outcome column not found in input CSV"
     assert "disposition" in df.columns, "disposition column not found in input CSV"
 
@@ -609,14 +612,13 @@ def infer_prevailing_party(df: pd.DataFrame) -> pd.DataFrame:
         "UNK": None,
     })
     # however, sometimes the US gov is the plaintiff, and the plaintiff winning is pro-development. these are hand-coded by Maggie. 
-    usgov_pl_df = pd.read_csv(
-        INTERMEDIATE_DATA_DIR / "usgov_plaintiffs_MB_04022026.csv")
-    cluster_ids_to_flip = usgov_pl_df.loc[
+    usgov_pl_df = pd.read_csv(USGOV_PL_PATH, encoding = "latin-1") # utf-8 encoding doesn't work for some reason (can't decode byte 0xd5 in position 47954)
+    opinion_ids_to_flip = usgov_pl_df.loc[
             ((usgov_pl_df["include_in_analysis"] == 1) & (usgov_pl_df["gov_losing_as_pro_dev"] == 1)),
-            "cluster_id"
+            "opinion_id"
         ].unique()
     # flip the mapping for these specific cases 
-    flip_mask = df["cluster_id"].isin(cluster_ids_to_flip)
+    flip_mask = df["opinion_id"].isin(opinion_ids_to_flip)
     df.loc[flip_mask, "pro_dev_district_score"] = df.loc[
         flip_mask, "district_outcome"].map({
             "defendant": 0,
@@ -729,7 +731,9 @@ def merge_cluster_metadata_w_llm_features(
     print("\nMerging LLM-coded features with cluster metadata...")
     cluster_df = pd.read_csv(cluster_metadata_path, dtype={"cluster_id": str, "lead_opinion_id": str})
     llm_outcomes_df = pd.read_csv(llm_outcomes_path, dtype={"opinion_id": str})
+    llm_outcomes_df = llm_outcomes_df.rename(columns={"model_id": "outcomes_model_id"})
     judges_df = pd.read_csv(llm_judges_path, dtype={"opinion_id": str})
+    judges_df = judges_df.rename(columns={"model_id": "judges_model_id"})
     
     # Merge cluster metadata to LLM-extracted features using lead_opinion_id from cluster metadata
     merged_df = cluster_df.merge(
@@ -738,12 +742,14 @@ def merge_cluster_metadata_w_llm_features(
         right_on="opinion_id",
         how="left",
     )
+    merged_df = merged_df.drop(columns=["opinion_id"]) # duplicate of lead_opinion_id
     merged_df = merged_df.merge(
         judges_df,
         left_on="lead_opinion_id",
         right_on="opinion_id",
         how="left",
     )
+    merged_df = merged_df.drop(columns=["opinion_id"]) # duplicate of lead_opinion_id
     
     # Save merged data
     output_path_obj = Path(output_path)
@@ -753,8 +759,8 @@ def merge_cluster_metadata_w_llm_features(
     
     # Print summary statistics
     total_clusters = len(merged_df)
-    
-    clusters_with_outcomes = merged_df["opinion_id"].notna().sum()
+
+    clusters_with_outcomes = merged_df["prevailing_score"].notna().sum()
     print(f"Total clusters: {total_clusters}")
     print(f"Clusters with LLM outcomes: {clusters_with_outcomes} ({clusters_with_outcomes/total_clusters*100:.1f}%)")
 
@@ -1246,7 +1252,11 @@ def merge_cl_train_w_llm_features(
     train_assignments = pd.read_csv(train_assignments_path, dtype={"cluster_id": str}) 
     cl_df = pd.read_csv(COURTLISTENER_CLUSTER_CLEANED_PATH, dtype={"cluster_id": str, "lead_opinion_id": str})
     pred_outcomes_df = pd.read_csv(LLM_OPINION_CLF_PATH, dtype={"opinion_id": str})
+    pred_outcomes_df = pred_outcomes_df.rename(columns={"model_id": "outcomes_model_id"})
+    pred_outcomes_df = infer_prevailing_party(pred_outcomes_df)
+
     judges_df = pd.read_csv(LLM_JUDGES_CLF_PATH, dtype={"opinion_id": str})
+    judges_df = judges_df.rename(columns={"model_id": "judges_model_id"})
     
     # Validate required columns
     assert "lead_opinion_id" in cl_df.columns, "lead_opinion_id missing from CourtListener cluster metadata"
@@ -1267,14 +1277,15 @@ def merge_cl_train_w_llm_features(
         right_on="opinion_id",
         how="left",
     )
+    merged = merged.drop(columns=["opinion_id"]) # duplicate of lead_opinion_id
     merged = merged.merge(
         judges_df,
         left_on="lead_opinion_id",
         right_on="opinion_id",
         how="left",
     )
-
-    merged = infer_prevailing_party(merged)
+    merged = merged.drop(columns=["opinion_id"]) # duplicate of lead_opinion_id
+    
     merged = merged.rename(columns={
         "district_outcome": "district_outcome_pred",
         "disposition": "disposition_pred"

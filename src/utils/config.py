@@ -8,10 +8,10 @@ from datetime import datetime
 ################################################################################
 # SET CODE LOCATION -----------------------------------------------------------
 
-loc = "yale_server"
-# loc = "local"
+# loc = "yale_server"
+loc = "hannah_local"
 
-if loc == "local":
+if loc == "hannah_local":
     BASE_DIR = Path(
         "C:/Users/hl2266/YLS Dropbox/Hannah Lu/shared/NEPA Court Cases/")
     CODE_DIR = BASE_DIR / "Code" / "NEPA_court_cases"
@@ -41,20 +41,35 @@ JUDGES_OUTPUT_DIR = INTERMEDIATE_DATA_DIR / "Judges"
 CLEANED_DATASETS_DIR = INTERMEDIATE_DATA_DIR / "Cleaned Datasets"
 ADELGLICKS_CLEANED_PATH = CLEANED_DATASETS_DIR / "AdelGlicks.csv"
 COURTLISTENER_CLUSTER_CLEANED_PATH = CLEANED_DATASETS_DIR / "CourtListener/cluster_metadata.csv"
-COURTLISTENER_OUTCOMES_CLEANED_PATH = CLEANED_DATASETS_DIR / "CourtListener/outcomes_metadata.csv"
+
 MATCHING_DIR = INTERMEDIATE_DATA_DIR / "Docket Matching"
 COURTLISTENER_AG_MATCH_STATS_PATH = MATCHING_DIR / "CL_AG_match_stats.txt"
 COURTLISTENER_AG_MATCHING_PATH = MATCHING_DIR / "CL_AG_matching.csv"
 COURTLISTENER_AG_MATCHING_SPLIT_PATH = MATCHING_DIR / "CL_AG_matched_val_test_assignments.csv"
-OUTCOME_ASSIGNMENTS_DIR = INTERMEDIATE_DATA_DIR / "Outcome Coding Assignments"
-AG_VAL_ASSIGNMENTS_PATH = OUTCOME_ASSIGNMENTS_DIR / "AG_val.csv"
-AG_TEST_ASSIGNMENTS_PATH = OUTCOME_ASSIGNMENTS_DIR / "AG_test.csv"
-CL_TRAIN_ASSIGNMENTS_PATH = OUTCOME_ASSIGNMENTS_DIR / "CL_train.csv"
-OUTCOME_PREDICTIONS_DIR = INTERMEDIATE_DATA_DIR / "Outcome Coding Predictions"
-CL_TRAIN_PREDICTIONS_PATH = OUTCOME_PREDICTIONS_DIR / "CL_train_predictions.csv"
-LLM_OPINION_CODING_RAW_PATH = INTERMEDIATE_DATA_DIR / "gemini_output/opinions_20251219_110552_coding_20260102_165440/opinions_20251219_110552_coding_20260102_165440.csv"
-LLM_OPINION_CODING_PATH = OUTCOME_PREDICTIONS_DIR / "LLM_opinion_coding.csv"
-COURTLISTENER_METADATA_WITH_LLM_OUTCOMES_PATH = OUTCOME_PREDICTIONS_DIR / "courtlistener_metadata_with_LLM_outcomes.csv"
+
+# OUTCOME_ASSIGNMENTS_DIR = INTERMEDIATE_DATA_DIR / "Outcome Coding Assignments" # deprecated 
+FTR_ASSIGNMENTS_DIR = INTERMEDIATE_DATA_DIR / "Feature Classification Assignments"
+AG_VAL_ASSIGNMENTS_PATH = FTR_ASSIGNMENTS_DIR / "AG_val.csv"
+AG_TEST_ASSIGNMENTS_PATH = FTR_ASSIGNMENTS_DIR / "AG_test.csv"
+CL_TRAIN_ASSIGNMENTS_PATH = FTR_ASSIGNMENTS_DIR / "CL_train.csv"
+
+# OUTCOME_PREDICTIONS_DIR = INTERMEDIATE_DATA_DIR / "Outcome Coding Predictions" # deprecated 
+FTR_PREDICTIONS_DIR = INTERMEDIATE_DATA_DIR / "Feature Classification Predictions"
+CL_TRAIN_PREDICTIONS_PATH = FTR_PREDICTIONS_DIR / "CL_train_predictions.csv"
+
+LLM_OPINION_CLF_RAW_PATH = INTERMEDIATE_DATA_DIR / "gemini_output/opinions_20251219_110552_coding_20260102_165440/opinions_20251219_110552_coding_20260102_165440.csv"
+LLM_OPINION_CLF_PATH = FTR_PREDICTIONS_DIR / "LLM_case_outcome_coding.csv"
+
+# TODO: update with timestamped paths after gemini coding finished
+LLM_JUDGES_CLF_RAW_PATH = INTERMEDIATE_DATA_DIR / "gemini_output/opinions_20251219_110552_judges_20260428_141959/opinions_20251219_110552_judges_20260428_141959.csv"
+LLM_JUDGES_CLF_PATH = FTR_PREDICTIONS_DIR / "LLM_judge_coding.csv"
+
+
+COURTLISTENER_METADATA_W_FTRS_PATH = FTR_PREDICTIONS_DIR / "courtlistener_metadata_w_extracted_features.csv"
+
+
+# other misc file paths 
+USGOV_PL_PATH = INTERMEDIATE_DATA_DIR / "usgov_plaintiffs_MB_04022026.csv"
 
 ################################################################################
 
