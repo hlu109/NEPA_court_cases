@@ -220,6 +220,10 @@ def process_cases(genai_client,
     max_retries = 5
     start_time = time.time()
 
+    # track issues in real time 
+    error_count = 0
+    missing_file_skip_count = 0
+
     for i, case_id in enumerate(case_ids):
         # add counter for cases processed
         print(f"\nProcessing case {case_id} ({i + 1}/{total_cases})...")
@@ -242,11 +246,13 @@ def process_cases(genai_client,
                         f"WARNING: .pdf file not found for case {case_id}, and .html fallback also missing; skipping..."
                     )
                     file_source_indicator = "pdf not found, html not found"
+                    missing_file_skip_count += 1
                     continue
             else:
                 print(
                     f"WARNING: .{file_extension} file not found for case {case_id}, skipping..."
                 )
+                missing_file_skip_count += 1
                 continue
         elif file_extension == "pdf":
             file_source_indicator = "pdf used"
@@ -339,16 +345,25 @@ def process_cases(genai_client,
             # (EXCEPTION occurred (non-retryable): 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'Resource exhausted. Please try again later. Please refer to https://cloud.google.com/vertex-ai/generative-ai/docs/error-code-429 for more details.', 'status': 'RESOURCE_EXHAUSTED'}}
 
         if not success:
-            continue
+            error_count += 1
+            # continue
 
         # Combine output
-        if df is not None:
+        if success and df is not None:
             all_dataframes.append(df)
 
         total_time_elapsed = time.time() - start_time
         avg_time_per_case = total_time_elapsed / (i + 1)
         print(f"Total time elapsed: {total_time_elapsed / 3600:.2f} hrs")
         print(f"Average time per case so far: {avg_time_per_case:.2f} s")
+        print(f"Cases with no Gemini output so far: {error_count}")
+        print(f"Cases skipped for missing files so far: {missing_file_skip_count}")
+
+    # log error and missing file counts to log file 
+    m = f"Total cases with no Gemini output: {error_count}"
+    _log_and_print(m, log_dir, identifier)
+    m = f"Total cases skipped for missing files: {missing_file_skip_count}"
+    _log_and_print(m, log_dir, identifier)
 
     if all_dataframes:
         final_dataframe = pd.concat(all_dataframes, ignore_index=True)
