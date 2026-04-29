@@ -3,11 +3,13 @@ from pydantic import BaseModel, Field, StringConstraints
 from typing import List, Dict, Optional, Union, Literal, Any, Annotated
 
 class CaseWithOutcomes(BaseModel):
-    # opinion_id: str = Field(description="Opinion ID")
     disposition: Literal["affirm", "reverse", "mixed", "UNK"] = Field(
         description="Case disposition")
     district_outcome: Literal["plaintiff", "defendant", "mixed", "UNK"] = Field(
         description="Outcome from lower district court case")
+    metadata: Dict[str, Any] = Field(
+        default_factory=dict, # constructs new empty dict by default
+        description="Flexible metadata fields added during processing.")
     
     # TODO: extract judge? 
     
@@ -20,10 +22,10 @@ class CaseWithOutcomes(BaseModel):
 def case_to_dataframe(case: CaseWithOutcomes) -> pd.DataFrame:
     """ Convert a Case object to a DataFrame."""
     data = {
-        # "Opinion ID": case.opinion_id,
         "disposition": case.disposition,
         "district_outcome": case.district_outcome
     }
+    data.update(case.metadata) # appends dictionary of metadata
     df = pd.DataFrame([data])
     return df
 
@@ -31,11 +33,12 @@ def cases_to_dataframe(cases: List[CaseWithOutcomes]) -> pd.DataFrame:
     """ Convert a list of Case objects to a DataFrame."""
     data = []
     for case in cases: 
-        data.append({
-            # "Opinion ID": case.opinion_id,
+        row = {
             "disposition": case.disposition,
             "district_outcome": case.district_outcome
-        })
+        }
+        row.update(case.metadata) # appends dictionary of metadata
+        data.append(row)
 
     df = pd.DataFrame(data)
     return df

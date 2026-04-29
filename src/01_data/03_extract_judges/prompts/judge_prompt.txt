@@ -8,6 +8,7 @@ Extract structured data from this file and return it following the **CaseWithJud
 - Use knowledge of the American legal system to inform your reasoning.
 - **All letters are in the English alphabet and all words and names are in the English language.**
 - **Do not make up any false information.**
+- **LEAVE THE METADATA FIELD EMPTY.**
 
 ---
 

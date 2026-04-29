@@ -276,9 +276,9 @@ def process_cases(genai_client,
 
                 if result:
                     # add additional tracked information to the json 
-                    result["opinion_id"] = case_id
-                    result["file_source_indicator"] = file_source_indicator
-                    result["model_id"] = model_id
+                    result.metadata["opinion_id"] = case_id
+                    result.metadata["file_source_indicator"] = file_source_indicator
+                    result.metadata["model_id"] = model_id
 
                     # save intermediate data structure to json
                     json_path = os.path.join(intermediate_dir,
