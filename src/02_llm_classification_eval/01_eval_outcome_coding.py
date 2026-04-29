@@ -12,15 +12,14 @@ from utils.config import (
     AG_TEST_ASSIGNMENTS_PATH,
     ADELGLICKS_CLEANED_PATH,
     COURTLISTENER_CLUSTER_CLEANED_PATH,
-    LLM_OPINION_CODING_PATH,
+    LLM_OPINION_CLF_PATH,
     INTERMEDIATE_DATA_DIR,
+    FTR_PREDICTIONS_DIR,
 )
 
-
-OUTCOME_EVAL_DIR = INTERMEDIATE_DATA_DIR / "Outcome Coding Eval"
-VAL_EVAL_PATH = OUTCOME_EVAL_DIR / "val_performance.csv"
-TEST_EVAL_PATH = OUTCOME_EVAL_DIR / "test_performance.csv"
-OUTCOME_PREDICTIONS_DIR = INTERMEDIATE_DATA_DIR / "Outcome Coding Predictions"
+FTR_EVAL_DIR = INTERMEDIATE_DATA_DIR / "Feature Classification Eval"
+VAL_EVAL_PATH = FTR_EVAL_DIR / "val_performance.csv"
+TEST_EVAL_PATH = FTR_EVAL_DIR / "test_performance.csv"
 
 
 def compute_performance(y_true: pd.Series, y_pred: pd.Series) -> dict:
@@ -99,7 +98,7 @@ def evaluate_split(
     assignments = pd.read_csv(assignments_path, dtype={"cluster_id": str, assignments_id_col: str})
     ground_truth_df = pd.read_csv(ground_truth_path, dtype={"cluster_id": str, ground_truth_id_col: str})
     cl_df = pd.read_csv(COURTLISTENER_CLUSTER_CLEANED_PATH, dtype={"cluster_id": str, "lead_opinion_id": str})
-    pred_outcomes_df = pd.read_csv(LLM_OPINION_CODING_PATH, dtype={"opinion_id": str})
+    pred_outcomes_df = pd.read_csv(LLM_OPINION_CLF_PATH, dtype={"opinion_id": str})
 
     assert "lead_opinion_id" in cl_df.columns, "lead_opinion_id missing from CourtListener cluster metadata"
     assert "opinion_id" in pred_outcomes_df.columns, "opinion_id missing from LLM coded outcomes"
@@ -203,17 +202,17 @@ def main():
         str(ADELGLICKS_CLEANED_PATH),
         "id_num",
         "adelglicks_id",
-        str(OUTCOME_EVAL_DIR / "AG_val_confusion_matrix")
+        str(FTR_EVAL_DIR / "AG_val_confusion_matrix")
     )
 
     # Save predictions and performance metrics
-    OUTCOME_EVAL_DIR.mkdir(parents=True, exist_ok=True)
-    OUTCOME_PREDICTIONS_DIR.mkdir(parents=True, exist_ok=True)
+    FTR_EVAL_DIR.mkdir(parents=True, exist_ok=True)
+    FTR_PREDICTIONS_DIR.mkdir(parents=True, exist_ok=True)
 
     val_metrics.to_csv(VAL_EVAL_PATH, index=False)
     print(f"Saved validation performance to: {VAL_EVAL_PATH}")
 
-    val_pred_path = OUTCOME_PREDICTIONS_DIR / "AG_val_predictions.csv"
+    val_pred_path = FTR_PREDICTIONS_DIR / "AG_val_predictions.csv"
     val_merged.to_csv(val_pred_path, index=False)
     print(f"Saved validation predictions to: {val_pred_path}")
 
@@ -225,14 +224,14 @@ def main():
     #     str(ADELGLICKS_CLEANED_PATH),
     #     "id_num",
     #     "adelglicks_id",
-    #     str(OUTCOME_EVAL_DIR / "AG_test_confusion_matrix")
+    #     str(FTR_EVAL_DIR / "AG_test_confusion_matrix")
     # )
 
     # # Save predictions and performance metrics
     # test_metrics.to_csv(TEST_EVAL_PATH, index=False)
     # print(f"Saved test performance to: {TEST_EVAL_PATH}")
 
-    # test_pred_path = OUTCOME_PREDICTIONS_DIR / "AG_test_predictions.csv"
+    # test_pred_path = FTR_PREDICTIONS_DIR / "AG_test_predictions.csv"
     # test_merged.to_csv(test_pred_path, index=False)
     # print(f"Saved test predictions to: {test_pred_path}")
 

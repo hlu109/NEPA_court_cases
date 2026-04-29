@@ -11,6 +11,7 @@ import pandas as pd
 import numpy as np
 
 from utils.config import (
+    INTERMEDIATE_DATA_DIR,
     ADELGLICKS_RAW_PATH, 
     ADELGLICKS_SHEET_NAME, 
     ADELGLICKS_CLEANED_PATH,
@@ -18,19 +19,18 @@ from utils.config import (
     COURTLISTENER_AG_MATCH_STATS_PATH,
     COURTLISTENER_AG_MATCHING_PATH,
     COURTLISTENER_AG_MATCHING_SPLIT_PATH,
-    OUTCOME_ASSIGNMENTS_DIR,
+    FTR_ASSIGNMENTS_DIR,
     AG_VAL_ASSIGNMENTS_PATH,
     AG_TEST_ASSIGNMENTS_PATH,
     CL_TRAIN_ASSIGNMENTS_PATH,
     COURTLISTENER_METADATA_DIR,
-    LLM_OPINION_CODING_RAW_PATH,
-    LLM_OPINION_CODING_PATH,
-    INTERMEDIATE_DATA_DIR,
-    OUTCOME_PREDICTIONS_DIR,
+    LLM_OPINION_CLF_RAW_PATH,
+    LLM_OPINION_CLF_PATH,
+    LLM_JUDGES_CLF_RAW_PATH,
+    LLM_JUDGES_CLF_PATH,
     CL_TRAIN_PREDICTIONS_PATH,
-    COURTLISTENER_METADATA_WITH_LLM_OUTCOMES_PATH,
+    COURTLISTENER_METADATA_W_FTRS_PATH,
 )
-
 
 
 def normalize_dash_characters(text: str) -> str:
@@ -156,6 +156,16 @@ def clean_adelglicks_outcomes(df: pd.DataFrame) -> pd.DataFrame:
 
     return df
 
+def clean_adelglicks_judges(df: pd.DataFrame) -> pd.DataFrame:
+    """ Rename the dataframe columns to be consistent with CourtListener judges data.
+    """
+    df = df.rename(columns={
+        "judge_1": "panel_judge_1",
+        "judge_2": "panel_judge_2",
+        "judge_3": "panel_judge_3",
+    })
+    return df
+
 def clean_adelglicks_data(adelglicks_raw_path: str, sheet_name: str, 
                           output_path: str) -> pd.DataFrame:
     """
@@ -200,6 +210,7 @@ def clean_adelglicks_data(adelglicks_raw_path: str, sheet_name: str,
     # print(df['lead_agency'].unique())
 
     df = clean_adelglicks_outcomes(df)
+    df = clean_adelglicks_judges(df)
 
     # Drop rows that are perfect duplicates 
     df = df.drop_duplicates()
@@ -459,6 +470,32 @@ def clean_courtlistener_dockets(
     return df
 
 
+def drop_nonNEPA_cases(df: pd.DataFrame, path: str) -> pd.DataFrame:
+    """
+    Drop CourtListener cases that Maggie marked as not NEPA related.
+
+    Args:
+        df: Input cluster metadata dataframe.
+        path: Path to Maggie's CSV containing include_in_analysis and cluster_id columns.
+
+    Returns:
+        Filtered dataframe with non-NEPA cases removed.
+    """
+    df = df.copy()
+    mb_df = pd.read_csv(path)
+
+    non_nepa_cluster_ids = mb_df.loc[
+        mb_df["include_in_analysis"] == 0, "cluster_id"
+    ].dropna().astype(str).unique()
+
+    before_count = len(df)
+    df = df[~df["cluster_id"].astype(str).isin(non_nepa_cluster_ids)]
+    dropped_count = before_count - len(df)
+    print(f"Dropped {dropped_count} non-NEPA clusters from metadata")
+    print(f"Remaining clusters after non-NEPA filter: {len(df)}")
+    return df
+
+
 def clean_cluster_metadata(cluster_metadata_path: str,
                            opinion_metadata_path: str,
                            output_path: str) -> pd.DataFrame:
@@ -478,6 +515,12 @@ def clean_cluster_metadata(cluster_metadata_path: str,
 
     print(f"\nLoading opinion metadata from {opinion_metadata_path}...")
     opinion_df = pd.read_csv(opinion_metadata_path)
+
+    # handle cases with US gov plaintiffs  
+    cluster_df = drop_nonNEPA_cases(
+        cluster_df,
+        path=INTERMEDIATE_DATA_DIR / "usgov_plaintiffs_MB_04022026.csv",
+    )
 
     # Clean docket numbers
     cluster_df = clean_courtlistener_dockets(
@@ -511,60 +554,192 @@ def clean_cluster_metadata(cluster_metadata_path: str,
 
 def infer_prevailing_party(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Infer prevailing party from district outcome and disposition.
+    Infer prevailing party from district outcome and disposition, then computes univariate scores. 
     """
+
+    assert "cluster_id" in df.columns, "cluster_id column not found in input CSV"
     assert "district_outcome" in df.columns, "district_outcome column not found in input CSV"
     assert "disposition" in df.columns, "disposition column not found in input CSV"
+
+    # Create column for final party favored by appellate decision (plaintiff or defendant)
     df['prevailing_party'] = None 
+
+    # if disposition is affirm, then prevailing party = district outcome
     df.loc[df['disposition'] == 'affirm', 'prevailing_party'] = df['district_outcome']
+    # if disposition is reverse, then prevailing party = opposite of district outcome
     df.loc[df['disposition'] == 'reverse', 'prevailing_party'] = df['district_outcome'].map(
         lambda x: 'defendant' if x == 'plaintiff' else 'plaintiff' if x == 'defendant' else None
     )
+    # handle mixed and unknown dispositions 
     df.loc[df['disposition'] == 'mixed', 'prevailing_party'] = 'mixed'
     df.loc[df['disposition'] == 'UNK', 'prevailing_party'] = 'UNK'
+
+    # compute univariate scores
+    df["district_score"] = df["district_outcome"].map({
+        "defendant": 0,
+        "mixed": 0.5,
+        "plaintiff": 1,
+        "UNK": None,
+    })
+    df["disposition_score"] = df["disposition"].map({
+        "affirm": 0,
+        "mixed": 0.5,
+        "reverse": 1,
+        "UNK": None,
+    })
+    df["prevailing_score"] = df["prevailing_party"].map({
+        "defendant": 0,
+        "mixed": 0.5,
+        "plaintiff": 1,
+        "UNK": None,
+    })
+
+    # infer the pro- or anti-development stance of the outcome 
+    # usually, the US gov is the defendant, and the defendant winning is pro-development 
+    df["pro_dev_district_score"] = df["district_outcome"].map({
+        "defendant": 1,
+        "plaintiff": 0,
+        "mixed": 0.5,
+        "UNK": None,
+    })
+    df["pro_dev_prevailing_score"] = df["prevailing_party"].map({
+        "defendant": 1,
+        "plaintiff": 0,
+        "mixed": 0.5,
+        "UNK": None,
+    })
+    # however, sometimes the US gov is the plaintiff, and the plaintiff winning is pro-development. these are hand-coded by Maggie. 
+    usgov_pl_df = pd.read_csv(
+        INTERMEDIATE_DATA_DIR / "usgov_plaintiffs_MB_04022026.csv")
+    cluster_ids_to_flip = usgov_pl_df.loc[
+            ((usgov_pl_df["include_in_analysis"] == 1) & (usgov_pl_df["gov_losing_as_pro_dev"] == 1)),
+            "cluster_id"
+        ].unique()
+    # flip the mapping for these specific cases 
+    flip_mask = df["cluster_id"].isin(cluster_ids_to_flip)
+    df.loc[flip_mask, "pro_dev_district_score"] = df.loc[
+        flip_mask, "district_outcome"].map({
+            "defendant": 0,
+            "plaintiff": 1,
+            "mixed": 0.5,
+            "UNK": None,
+        })
+    df.loc[flip_mask, "pro_dev_prevailing_score"] = df.loc[
+        flip_mask, "prevailing_party"].map({
+            "defendant": 0,
+            "plaintiff": 1,
+            "mixed": 0.5,
+            "UNK": None,
+        })
     return df
 
 
 def clean_courtlistener_outcomes():
     """
-    Infer prevailing party from district outcome and disposition and save to CSV.
+    Get prevailing party and univariate scores, then save to CSV.
     """
-    cl_df = pd.read_csv(LLM_OPINION_CODING_RAW_PATH)
+    cl_df = pd.read_csv(LLM_OPINION_CLF_RAW_PATH)
     cl_df = infer_prevailing_party(cl_df)
 
     # reorder columns
-    cl_df = cl_df[["opinion_id", "district_outcome", "disposition", "prevailing_party", "model_id"]]
+    cl_df = cl_df[["opinion_id", "district_outcome", "disposition", "prevailing_party", "district_score", "disposition_score", "prevailing_score", "model_id"]]
 
     # save to CSV
-    LLM_OPINION_CODING_PATH.parent.mkdir(parents=True, exist_ok=True)
-    cl_df.to_csv(LLM_OPINION_CODING_PATH, index=False)
-    print(f"Saved cleaned CourtListener outcomes to {LLM_OPINION_CODING_PATH}")
+    LLM_OPINION_CLF_PATH.parent.mkdir(parents=True, exist_ok=True)
+    cl_df.to_csv(LLM_OPINION_CLF_PATH, index=False)
+    print(f"Saved cleaned CourtListener outcomes to {LLM_OPINION_CLF_PATH}")
     return cl_df
 
 
-def merge_cluster_metadata_with_llm_outcomes(
+def clean_courtlistener_judges() -> pd.DataFrame:
+    """
+    Clean judge names: extract last names, extract first three judges from each sequence, and save to CSV.
+
+    Returns:
+        Cleaned dataframe with normalized judge columns and added columns for panel_judge_1/2/3 and author_judge_1/2/3.
+    """
+    df = pd.read_csv(LLM_JUDGES_CLF_RAW_PATH)
+
+    # normalize judge names
+    panel_values = df["panel_judges"].fillna("").astype(str).str.strip().str.upper()
+    author_values = df["opinion_authors"].fillna("").astype(str).str.strip().str.upper()
+    # identify en banc and per curiam cases
+    df["en_banc"] = (panel_values == "EN BANC").astype(int)
+    df["per_curiam"] = (author_values == "PER CURIAM").astype(int)
+
+    # split the semicolon-delimited string into list of judges
+    panel_extracted = df["panel_judges"].fillna("").astype(str).str.split("; ")
+    author_extracted = df["opinion_authors"].fillna("").astype(str).str.split("; ")
+
+    # pull just the last name of each judge
+    def _extract_last_name(name: str) -> str:
+        name = str(name).strip()
+        if not name:
+            return ""
+        if "," in name: # (last, first) format  
+            return name.split(",")[0].strip()
+        else:
+            tokens = [t for t in re.split(r"\s+", name) if t] # (first (middle) last) format
+            return tokens[-1] if tokens else ""
+
+    def _extract_last_names_from_list(names):
+        return [_extract_last_name(name) for name in names if str(name).strip()]
+
+    panel_extracted = panel_extracted.apply(_extract_last_names_from_list)
+    author_extracted = author_extracted.apply(_extract_last_names_from_list)
+
+
+    # pull the first 3 judges from each list (panel and author)
+    df["panel_judge_1"] = panel_extracted.str[0].fillna("")
+    df["panel_judge_2"] = panel_extracted.str[1].fillna("")
+    df["panel_judge_3"] = panel_extracted.str[2].fillna("")
+
+    df["author_judge_1"] = author_extracted.str[0].fillna("")
+    df["author_judge_2"] = author_extracted.str[1].fillna("")
+    df["author_judge_3"] = author_extracted.str[2].fillna("")
+
+    df.loc[df["en_banc"] == 1, ["panel_judge_1", "panel_judge_2", "panel_judge_3"]] = ""
+    df.loc[df["per_curiam"] == 1, ["author_judge_1", "author_judge_2", "author_judge_3"]] = ""
+
+    # save to CSV
+    LLM_JUDGES_CLF_PATH.parent.mkdir(parents=True, exist_ok=True)
+    df.to_csv(LLM_JUDGES_CLF_PATH, index=False)
+    print(f"Saved cleaned CourtListener judges to {LLM_JUDGES_CLF_PATH}")
+    return df
+
+
+def merge_cluster_metadata_w_llm_features(
     cluster_metadata_path: str,
     llm_outcomes_path: str,
+    llm_judges_path: str,
     output_path: str
 ) -> pd.DataFrame:
     """
-    Merge LLM-coded outcomes with cluster metadata.
+    Merge LLM-coded features (case outcomes and judges) with cluster metadata.
     
     Args:
         cluster_metadata_path: Path to cleaned cluster metadata CSV
         llm_outcomes_path: Path to cleaned LLM opinion coding CSV
+        llm_judges_path: Path to cleaned LLM judges coding CSV
         output_path: Path to save merged CSV
         
     Returns:
-        Merged DataFrame with cluster metadata and LLM outcomes
+        Merged DataFrame with cluster metadata and LLM-extracted features (case outcomes and judge names)
     """
-    print("\nMerging LLM-coded outcomes with cluster metadata...")
+    print("\nMerging LLM-coded features with cluster metadata...")
     cluster_df = pd.read_csv(cluster_metadata_path, dtype={"cluster_id": str, "lead_opinion_id": str})
     llm_outcomes_df = pd.read_csv(llm_outcomes_path, dtype={"opinion_id": str})
+    judges_df = pd.read_csv(llm_judges_path, dtype={"opinion_id": str})
     
-    # Merge on lead_opinion_id from cluster metadata and opinion_id from LLM outcomes
+    # Merge cluster metadata to LLM-extracted features using lead_opinion_id from cluster metadata
     merged_df = cluster_df.merge(
         llm_outcomes_df,
+        left_on="lead_opinion_id",
+        right_on="opinion_id",
+        how="left",
+    )
+    merged_df = merged_df.merge(
+        judges_df,
         left_on="lead_opinion_id",
         right_on="opinion_id",
         how="left",
@@ -578,10 +753,14 @@ def merge_cluster_metadata_with_llm_outcomes(
     
     # Print summary statistics
     total_clusters = len(merged_df)
+    
     clusters_with_outcomes = merged_df["opinion_id"].notna().sum()
     print(f"Total clusters: {total_clusters}")
     print(f"Clusters with LLM outcomes: {clusters_with_outcomes} ({clusters_with_outcomes/total_clusters*100:.1f}%)")
-    
+
+    clusters_with_judges = merged_df["panel_judges"].notna().sum()
+    print(f"Clusters with LLM judges: {clusters_with_judges} ({clusters_with_judges/total_clusters*100:.1f}%)")
+
     return merged_df
 
 
@@ -606,12 +785,14 @@ def clean_courtlistener_clusters_main():
     )
 
     clean_courtlistener_outcomes() # save a copy of the LLM-coded outcomes and adds a column for prevailing party 
+    clean_courtlistener_judges() # save a cleaned copy of LLM-coded judges data
 
-    # Merge LLM-coded outcomes with cluster metadata
-    merge_cluster_metadata_with_llm_outcomes(
+    # Merge LLM-coded outcomes and judges with cluster metadata
+    merge_cluster_metadata_w_llm_features(
         cluster_metadata_path=str(COURTLISTENER_CLUSTER_CLEANED_PATH),
-        llm_outcomes_path=str(LLM_OPINION_CODING_PATH),
-        output_path=str(COURTLISTENER_METADATA_WITH_LLM_OUTCOMES_PATH)
+        llm_outcomes_path=str(LLM_OPINION_CLF_PATH),
+        llm_judges_path=str(LLM_JUDGES_CLF_PATH),
+        output_path=str(COURTLISTENER_METADATA_W_FTRS_PATH)
     )
 
     print("Done!")
@@ -993,7 +1174,7 @@ def save_val_and_test_subsets(matches_df):
     val_df = matches_df[matches_df["dataset_split"] == "val"].copy()
     test_df = matches_df[matches_df["dataset_split"] == "test"].copy()
 
-    OUTCOME_ASSIGNMENTS_DIR.mkdir(parents=True, exist_ok=True)
+    FTR_ASSIGNMENTS_DIR.mkdir(parents=True, exist_ok=True)
     val_df.to_csv(AG_VAL_ASSIGNMENTS_PATH, index=False)
     test_df.to_csv(AG_TEST_ASSIGNMENTS_PATH, index=False)
 
@@ -1048,11 +1229,11 @@ def assign_val_test_split_main():
     save_cl_train_split(matches_df)
 
 
-def merge_cl_train_with_outcomes(
+def merge_cl_train_w_llm_features(
     train_assignments_path: Path = CL_TRAIN_ASSIGNMENTS_PATH,
     output_path: Path = CL_TRAIN_PREDICTIONS_PATH,
 ) -> pd.DataFrame:
-    """ Merge CL train data with lead opinion coded outcomes.
+    """ Merge CL train data with LLM-coded features (case outcomes and judges).
     
     Args:
         train_assignments_path: Path to CL train assignments CSV. 
@@ -1064,7 +1245,8 @@ def merge_cl_train_with_outcomes(
     # Load data
     train_assignments = pd.read_csv(train_assignments_path, dtype={"cluster_id": str}) 
     cl_df = pd.read_csv(COURTLISTENER_CLUSTER_CLEANED_PATH, dtype={"cluster_id": str, "lead_opinion_id": str})
-    pred_outcomes_df = pd.read_csv(LLM_OPINION_CODING_PATH, dtype={"opinion_id": str})
+    pred_outcomes_df = pd.read_csv(LLM_OPINION_CLF_PATH, dtype={"opinion_id": str})
+    judges_df = pd.read_csv(LLM_JUDGES_CLF_PATH, dtype={"opinion_id": str})
     
     # Validate required columns
     assert "lead_opinion_id" in cl_df.columns, "lead_opinion_id missing from CourtListener cluster metadata"
@@ -1078,30 +1260,25 @@ def merge_cl_train_with_outcomes(
         how="left",
     )
     
-    # Merge with LLM predictions
-    pred_outcomes_df = pred_outcomes_df.rename(columns={
-        "district_outcome": "district_outcome_pred",
-        "disposition": "disposition_pred"
-    })
+    # Merge with LLM-extracted features (case outcomes and judges)
     merged = merged.merge(
         pred_outcomes_df,
         left_on="lead_opinion_id",
         right_on="opinion_id",
         how="left",
     )
-    
-    # Create column for final party favored by appellate decision (plaintiff or defendant)
-    merged['prevailing_party'] = None 
-    # if disposition is affirm, then prevailing party = district outcome
-    merged.loc[merged['disposition_pred'] == 'affirm', 'prevailing_party'] = merged['district_outcome_pred']
-    # if disposition is reverse, then prevailing party = opposite of district outcome
-    merged.loc[merged['disposition_pred'] == 'reverse', 'prevailing_party'] = merged['district_outcome_pred'].map(
-        lambda x: 'defendant' if x == 'plaintiff' else 'plaintiff'
+    merged = merged.merge(
+        judges_df,
+        left_on="lead_opinion_id",
+        right_on="opinion_id",
+        how="left",
     )
-    # if disposition is mixed, then prevailing party set to mixed 
-    merged.loc[merged['disposition_pred'] == 'mixed', 'prevailing_party'] = 'mixed'
-    # if disposition is UNK, then prevailing party set to UNK
-    merged.loc[merged['disposition_pred'] == 'UNK', 'prevailing_party'] = None
+
+    merged = infer_prevailing_party(merged)
+    merged = merged.rename(columns={
+        "district_outcome": "district_outcome_pred",
+        "disposition": "disposition_pred"
+    })
 
     # Save output
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1110,15 +1287,19 @@ def merge_cl_train_with_outcomes(
     
     # Print summary statistics
     total_cases = len(merged)
+
     cases_with_predictions = merged["district_outcome_pred"].notna().sum()
     print(f"Total train cases: {total_cases}")
     print(f"Cases with predictions: {cases_with_predictions} ({cases_with_predictions/total_cases*100:.1f}%)")
+
+    cases_with_judges = merged["panel_judges"].notna().sum()
+    print(f"Cases with judges: {cases_with_judges} ({cases_with_judges/total_cases*100:.1f}%)")
     
     return merged
 
 
 def flip_district_outcome(
-    input_path: Path = LLM_OPINION_CODING_RAW_PATH,
+    input_path: Path = LLM_OPINION_CLF_RAW_PATH,
 ) -> pd.DataFrame:
     """
     Flip district_outcome values in LLM opinion coding CSV.
@@ -1163,7 +1344,7 @@ def main():
     merge_cases_by_docket_main()
     assign_val_test_split_main()
     # flip_district_outcome() # temporary workaround because it seems like the LLM coded everything the opposite way 
-    merge_cl_train_with_outcomes() # saves a copy of courtlistener data excluded from the val/test sets and merges with predictions 
+    merge_cl_train_w_llm_features() # saves a copy of courtlistener data excluded from the val/test sets and merges with predictions 
 
 
 if __name__ == "__main__":
