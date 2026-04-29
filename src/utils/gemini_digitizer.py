@@ -3,15 +3,21 @@ import time
 import requests
 import os
 import pandas as pd
+from utils.gemini_logging import _log_and_print
 
 
-def upload_to_API(genai_client, file_path: str):
+def upload_to_API(genai_client,
+                  file_path: str,
+                  log_dir=None,
+                  identifier=None):
     """
     Uploads court case opinion file to the Gemini API.
 
     Parameters:
         genai_client: Gemini API client.
         file_path (str): Path to the input opinion file.
+        log_dir (str, optional): Directory for writing Gemini error logs.
+        identifier (str, optional): Run identifier used for the Gemini log filename.
 
     Returns:
         object: Uploaded file object from the Gemini API.
@@ -19,15 +25,40 @@ def upload_to_API(genai_client, file_path: str):
     file_name = os.path.basename(file_path)
 
     # Check if file already exists in the File API
-    existing_files = genai_client.files.list()
     uploaded_file = None
-    for f in existing_files:
-        if f.display_name == file_name:
-            uploaded_file = f
-            print(
-                f"    File '{file_name}' already exists in the File API. Skipping upload."
-            )
+    max_retries = 7
+    base_wait = 10
+    should_check_existing = True
+
+    # Error handling: for 503 errors (server side), retry with expotential backoff/wait time. 
+    # For all other errors, in order to keep things running, we bypass the check for existing files and upload directly.
+    for attempt in range(max_retries):
+        if not should_check_existing:
             break
+        try:
+            existing_files = genai_client.files.list()
+            for f in existing_files:
+                if f.display_name == file_name:
+                    uploaded_file = f
+                    print(
+                        f"    File '{file_name}' already exists in the File API. Skipping upload."
+                    )
+                    break
+            break
+        except Exception as e:
+            if '503' in str(e):
+                wait_time = base_wait * (2**attempt)
+                m = f"Error 503 while checking existing upload for '{file_name}' on attempt {attempt + 1}. Retrying in {wait_time:.1f}s..."
+                _log_and_print(m, log_dir, identifier)
+                time.sleep(wait_time)
+            else:
+                m = f"Warning: existing file check failed for '{file_name}'. Skipping check and proceeding with direct upload: {e}"
+                _log_and_print(m, log_dir, identifier)
+                should_check_existing = False
+
+    if should_check_existing and not uploaded_file and attempt == max_retries - 1:
+        m = f"Max 503 retries reached while checking existing upload for '{file_name}'. Proceeding with direct upload."
+        _log_and_print(m, log_dir, identifier)
 
     # Upload file (only if it has not already been uploaded)
     if not uploaded_file:
@@ -43,6 +74,9 @@ def extract_case_data(genai_client,
                       data_struct: BaseModel,
                       prompt_text: str,
                       model_id: str,
+                      case_id=None,
+                      log_dir=None,
+                      identifier=None,
                       debug=False):
     """
     Extracts structured data from a court case opinion file using the Gemini API.
@@ -53,6 +87,9 @@ def extract_case_data(genai_client,
         data_struct (BaseModel): Data structure for extracted content.
         prompt_text (str): Prompt text for the API.
         model_id (str): Gemini model ID.
+        case_id (str, optional): Opinion/case identifier used in error logging context.
+        log_dir (str, optional): Directory for writing Gemini error logs.
+        identifier (str, optional): Run identifier used for the Gemini log filename.
         debug (bool): Enables debug logging.
 
     Returns:
@@ -100,7 +137,10 @@ def extract_case_data(genai_client,
                         )
 
             if not response or not response.parsed:
-                print("ERROR: The API did not return a valid parsed response.")
+                m = "ERROR: The API did not return a valid parsed response."
+                _log_and_print(
+                    f"case_id={case_id} \t\nmodel_id={model_id} \t\nextract_attempt={attempt + 1} \t\n{m}",
+                    log_dir, identifier)
                 return None
 
             return response.parsed
@@ -110,15 +150,22 @@ def extract_case_data(genai_client,
         except Exception as e:
             if '503' in str(e):
                 wait_time = base_wait * (2**attempt)
-                print(
-                    f"Error 503 on attempt {attempt + 1}. Retrying in {wait_time:.1f}s..."
-                )
+                m = f"Error 503 on attempt {attempt + 1}. Retrying in {wait_time:.1f}s..."
+                _log_and_print(
+                    f"case_id={case_id} \t\nmodel_id={model_id} \t\nextract_attempt={attempt + 1} \t\n{m}",
+                    log_dir, identifier)
                 time.sleep(wait_time)
             else:
-                print(f"EXCEPTION occurred (non-retryable): {e}")
+                m = f"EXCEPTION occurred (non-retryable): {e}"
+                _log_and_print(
+                    f"case_id={case_id} \t\nmodel_id={model_id} \t\nextract_attempt={attempt + 1} \t\n{m}",
+                    log_dir, identifier)
                 return None
 
-    print("Max 503 error retries reached. Giving up on this page.")
+    m = "Max 503 error retries reached. Giving up on this page."
+    _log_and_print(
+        f"case_id={case_id} \t\nmodel_id={model_id} \t\n{m}",
+        log_dir, identifier)
     return None
 
 
@@ -132,6 +179,8 @@ def process_cases(genai_client,
                   to_dataframe_fn,
                   file_extension: str = "html",
                   case_ids: list = None,
+                  log_dir=None,
+                  identifier=None,
                   debug=False):
     """
     Extracts structured data from court case opinion files and saves results.
@@ -147,6 +196,8 @@ def process_cases(genai_client,
         to_dataframe_fn: Function converting parsed schema object to dataframe.
         file_extension (str): Opinion file extension inside each opinion_XXX folder ("html" or "pdf").
         case_ids (list): Optional list of specific case IDs to process. If None, processes all cases.
+        log_dir (str, optional): Directory for writing Gemini error logs.
+        identifier (str, optional): Run identifier used for the Gemini log filename.
         debug (bool): Enables debug logging.
 
     Returns:
@@ -209,15 +260,26 @@ def process_cases(genai_client,
                 print(f"\t(Attempt {retries + 1})...")
 
                 # Upload opinion file
-                uploaded_file = upload_to_API(genai_client, opinion_path)
+                uploaded_file = upload_to_API(genai_client,
+                                              opinion_path,
+                                              log_dir=log_dir,
+                                              identifier=identifier)
 
                 # Extract case data
                 result = extract_case_data(genai_client, uploaded_file,
                                            data_struct, prompt, model_id,
-                                           debug)
+                                           case_id=case_id,
+                                           log_dir=log_dir,
+                                           identifier=identifier,
+                                           debug=debug)
                 success = True
 
                 if result:
+                    # add additional tracked information to the json 
+                    result["opinion_id"] = case_id
+                    result["file_source_indicator"] = file_source_indicator
+                    result["model_id"] = model_id
+
                     # save intermediate data structure to json
                     json_path = os.path.join(intermediate_dir,
                                              f"coded_opinion_{case_id}.json")
@@ -227,9 +289,9 @@ def process_cases(genai_client,
                     )
 
                     df = to_dataframe_fn(result)
-                    df["opinion_id"] = case_id
-                    df["model_id"] = model_id
-                    df["file_source_indicator"] = file_source_indicator
+                    # df["opinion_id"] = case_id
+                    # df["model_id"] = model_id
+                    # df["file_source_indicator"] = file_source_indicator
 
                     # Immediately delete the uploaded file to avoid storage limits
                     try:
@@ -241,19 +303,35 @@ def process_cases(genai_client,
                         )
 
                 else:
-                    print(f"FAILURE - No data found for case {case_id}.")
+                    m = f"FAILURE - No data found for case {case_id}."
+                    _log_and_print(
+                        f"case_id={case_id} \t\nfile_source_indicator={file_source_indicator} \t\nmodel_id={model_id} \t\n{m}",
+                        log_dir, identifier)
 
             except requests.exceptions.ConnectionError as e:
-                print(f"Connection error for opinion {case_id}: {e}")
+                m = f"Connection error for opinion {case_id}: {e}"
+                _log_and_print(
+                    f"case_id={case_id} \t\ncase_attempt={retries + 1} \t\nfile_source_indicator={file_source_indicator} \t\n{m}",
+                    log_dir, identifier)
                 retries += 1
                 if retries < max_retries:
-                    print(f"Retrying opinion {case_id} in 5 seconds...")
+                    m = f"Retrying opinion {case_id} in 5 seconds..."
+                    _log_and_print(
+                        f"case_id={case_id} \t\ncase_attempt={retries + 1} \t\n{m}",
+                        log_dir, identifier)
                     time.sleep(5)
                 else:
-                    raise ValueError(f"Max retries reached for case {case_id}")
+                    _log_and_print(
+                        f"Max retries reached for case {case_id}. Raising ValueError.",
+                        log_dir, identifier)
+                    print(f"Warning: Max retries reached for case {case_id}.")
+               
 
             # TODO: add error handling for other errors
             # (EXCEPTION occurred (non-retryable): 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'Resource exhausted. Please try again later. Please refer to https://cloud.google.com/vertex-ai/generative-ai/docs/error-code-429 for more details.', 'status': 'RESOURCE_EXHAUSTED'}}
+
+        if not success:
+            continue
 
         # Combine output
         if df is not None:

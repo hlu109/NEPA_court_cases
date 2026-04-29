@@ -3,6 +3,14 @@ from datetime import datetime
 
 
 def write_log(message, log_dir, identifier):
+    """
+    Appends a timestamped message to a run-specific log file.
+
+    Parameters:
+        message (str): Message text to append.
+        log_dir (str): Directory where log files are stored.
+        identifier (str): Run identifier used in the log filename.
+    """
     if not os.path.exists(log_dir):
         os.makedirs(log_dir)
     file_path = os.path.join(log_dir, f"log_{identifier}.txt")
@@ -11,12 +19,37 @@ def write_log(message, log_dir, identifier):
         file.write(f"[{timestamp}] {message}\n\n")
 
 
+def _log_and_print(message, log_dir=None, identifier=None):
+    """
+    Convenient wrapper to print a message and optionally writes it to a log file.
+
+    Parameters:
+        message (str): Message to print and optionally log.
+        log_dir (str, optional): Log directory; if omitted, message is only printed.
+        identifier (str, optional): Run identifier for the log filename.
+    """
+    print(message)
+    if log_dir and identifier:
+        write_log(message, log_dir, identifier)
+
+
 def log_config(prompt_text_path,
                gemini_model_id,
                identifier,
                log_dir,
                input_dir=None,
                case_ids=None):
+    """
+    Logs prompt text and configuration values for a Gemini run.
+
+    Parameters:
+        prompt_text_path (str): Path to the prompt text file.
+        gemini_model_id (str): Gemini model to use.
+        identifier (str): Run identifier used for config and log filenames.
+        log_dir (str): Directory where log outputs are saved.
+        input_dir (str, optional): Input directory being processed.
+        case_ids (list, optional): Subset of case IDs being processed. (None value indicates all cases.)
+    """
     if not os.path.exists(log_dir):
         os.makedirs(log_dir)
 

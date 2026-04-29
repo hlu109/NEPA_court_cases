@@ -74,6 +74,8 @@ def main():
                   to_dataframe_fn=case_to_dataframe,
                   file_extension="pdf",
                   case_ids=config.case_ids if hasattr(config, 'case_ids') else None,
+                  log_dir=config.log_dir,
+                  identifier=config.identifier,
                   debug=False)
     write_log("PROCESS COMPLETE", config.log_dir, config.identifier)
     print("\n Digitizing task complete !! ")
