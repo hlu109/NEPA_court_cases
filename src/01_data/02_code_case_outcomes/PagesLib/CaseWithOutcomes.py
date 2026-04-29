@@ -7,9 +7,6 @@ class CaseWithOutcomes(BaseModel):
         description="Case disposition")
     district_outcome: Literal["plaintiff", "defendant", "mixed", "UNK"] = Field(
         description="Outcome from lower district court case")
-    metadata: Dict[str, Any] = Field(
-        default_factory=dict, # constructs new empty dict by default
-        description="Flexible metadata fields added during processing.")
     
     # TODO: extract judge? 
     
@@ -25,7 +22,6 @@ def case_to_dataframe(case: CaseWithOutcomes) -> pd.DataFrame:
         "disposition": case.disposition,
         "district_outcome": case.district_outcome
     }
-    data.update(case.metadata) # appends dictionary of metadata
     df = pd.DataFrame([data])
     return df
 
@@ -37,7 +33,6 @@ def cases_to_dataframe(cases: List[CaseWithOutcomes]) -> pd.DataFrame:
             "disposition": case.disposition,
             "district_outcome": case.district_outcome
         }
-        row.update(case.metadata) # appends dictionary of metadata
         data.append(row)
 
     df = pd.DataFrame(data)

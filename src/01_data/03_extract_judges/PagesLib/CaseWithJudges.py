@@ -1,6 +1,6 @@
 import pandas as pd
 from pydantic import BaseModel, Field
-from typing import Any, Dict, List
+from typing import List
 
 
 class CaseWithJudges(BaseModel):
@@ -10,11 +10,6 @@ class CaseWithJudges(BaseModel):
     opinion_authors: List[str] = Field(
         description="List of judge name(s) who authored this specific opinion (majority, concurrence, or dissent)."
     )
-    metadata: Dict[str, Any] = Field(
-        default_factory=dict, # constructs new empty dict by default
-        description="Flexible metadata fields added during processing."
-    )
-
     def save_json(self, file_path: str):
         """Save the case information to a JSON file."""
         with open(file_path, "w", encoding="utf-8") as file:
@@ -35,7 +30,6 @@ def case_to_dataframe(case: CaseWithJudges) -> pd.DataFrame:
         "opinion_authors": _serialize_judges(case.opinion_authors),
         "opinion_author_count": len(case.opinion_authors),
     }
-    data.update(case.metadata) # appends dictionary of metadatax
     df = pd.DataFrame([data])
     return df
 
@@ -50,7 +44,6 @@ def cases_to_dataframe(cases: List[CaseWithJudges]) -> pd.DataFrame:
             "opinion_authors": _serialize_judges(case.opinion_authors),
             "opinion_author_count": len(case.opinion_authors),
         }
-        row.update(case.metadata) # appends dictionary of metadata
         data.append(row)
     df = pd.DataFrame(data)
     return df

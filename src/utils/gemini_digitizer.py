@@ -2,6 +2,7 @@ from pydantic import BaseModel
 import time
 import requests
 import os
+import json
 import pandas as pd
 from utils.gemini_logging import _log_and_print
 
@@ -275,23 +276,30 @@ def process_cases(genai_client,
                 success = True
 
                 if result:
-                    # add additional tracked information to the json 
-                    result.metadata["opinion_id"] = case_id
-                    result.metadata["file_source_indicator"] = file_source_indicator
-                    result.metadata["model_id"] = model_id
+                    runtime_metadata = {
+                        "opinion_id": case_id,
+                        "file_source_indicator": file_source_indicator,
+                        "model_id": model_id
+                    }
 
-                    # save intermediate data structure to json
+                    # add additional tracked information to the json 
                     json_path = os.path.join(intermediate_dir,
                                              f"coded_opinion_{case_id}.json")
-                    result.save_json(json_path)
+                    result_json = result.model_dump()
+                    result_json.update(runtime_metadata)
+
+                    # save intermediate data structure to json
+                    # (for the future - to handle unplanned termination and be able to resume from existing progress)
+                    with open(json_path, "w", encoding="utf-8") as file:
+                        json.dump(result_json, file, indent=4, ensure_ascii=False)
                     print(
                         f"  Saved intermediate JSON of coded opinion to {json_path}"
                     )
 
                     df = to_dataframe_fn(result)
-                    # df["opinion_id"] = case_id
-                    # df["model_id"] = model_id
-                    # df["file_source_indicator"] = file_source_indicator
+                    # add metadata to final dataframe
+                    for key, value in runtime_metadata.items():
+                        df[key] = value
 
                     # Immediately delete the uploaded file to avoid storage limits
                     try:
