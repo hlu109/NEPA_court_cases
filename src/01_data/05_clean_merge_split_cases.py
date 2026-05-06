@@ -40,7 +40,7 @@ from utils.config import (
 )
 
 
-def normalize_dash_characters(text: str) -> str:
+def _normalize_dash_characters(text: str) -> str:
     """
     Normalize all dash/hyphen variants (en dash, em dash, figure dash, minus 
     sign, encoding issues, etc.) to a standard hyphen-minus (-) for consistency
@@ -72,6 +72,26 @@ def normalize_dash_characters(text: str) -> str:
 
     return text
 
+def _extract_last_name(name: str) -> str:
+    name = str(name).strip()
+    if not name:
+        return ""
+    suffixes = {"JR", "SR", "II", "III", "IV", "V"}
+    # handle "last, first" format as well as "first middle last, suffix" format
+    if "," in name:  
+        comma_parts = [part.strip() for part in name.split(",")]
+        # check if the second part matches a suffix (after dropping the period)
+        if len(comma_parts) > 1 and comma_parts[1].replace(".", "").upper() in suffixes:
+            tokens = [t for t in re.split(r"\s+", comma_parts[0]) if t]
+            return tokens[-1] if tokens else ""
+        return comma_parts[0]
+    else:
+        # "first middle last" format
+        tokens = [t for t in re.split(r"\s+", name) if t] # (first (middle) last) format
+        return tokens[-1] if tokens else ""
+
+def _extract_last_names_from_list(names):
+    return [_extract_last_name(name) for name in names]
 
 def clean_adelglicks_dockets(df: pd.DataFrame) -> pd.DataFrame:
     """
@@ -95,7 +115,7 @@ def clean_adelglicks_dockets(df: pd.DataFrame) -> pd.DataFrame:
 
             # Normalize dash characters for consistency with CourtListener data
             df[col] = df[col].apply(
-                lambda x: normalize_dash_characters(x) if pd.notna(x) else x)
+                lambda x: _normalize_dash_characters(x) if pd.notna(x) else x)
 
             # Strip whitespace
             df[col] = df[col].str.strip() if df[col].notna().any() else df[col]
@@ -171,6 +191,17 @@ def clean_adelglicks_judges(df: pd.DataFrame) -> pd.DataFrame:
         "judge_2": "panel_judge_2",
         "judge_3": "panel_judge_3",
     })
+
+    # normalize 
+    df["panel_judge_1"] = df["panel_judge_1"].fillna("").astype(str).str.strip().str.upper()
+    df["panel_judge_2"] = df["panel_judge_2"].fillna("").astype(str).str.strip().str.upper()
+    df["panel_judge_3"] = df["panel_judge_3"].fillna("").astype(str).str.strip().str.upper()
+
+    # extract last name 
+    df["panel_judge_1"] = df["panel_judge_1"].apply(_extract_last_name)
+    df["panel_judge_2"] = df["panel_judge_2"].apply(_extract_last_name)
+    df["panel_judge_3"] = df["panel_judge_3"].apply(_extract_last_name)
+
     return df
 
 def clean_adelglicks_data(adelglicks_raw_path: str, sheet_name: str, 
@@ -347,7 +378,7 @@ def parse_courtlistener_docket_string(docket_str: str) -> List[str]:
     docket_str = str(docket_str)
 
     # Normalize dash characters first
-    docket_str = normalize_dash_characters(docket_str)
+    docket_str = _normalize_dash_characters(docket_str)
 
     # Remove common prefixes and text patterns 
     prefixes = [
@@ -545,6 +576,9 @@ def clean_cluster_metadata(cluster_metadata_path: str,
     # Drop rows that are duplicates 
     cluster_df = cluster_df.drop_duplicates(subset=["cluster_id"])
 
+    # Clean judge names 
+    cluster_df = clean_courtlistener_judges(cluster_df)
+
     # Save cleaned data
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -611,10 +645,12 @@ def infer_prevailing_party(df: pd.DataFrame) -> pd.DataFrame:
         "mixed": 0.5,
         "UNK": None,
     })
-    # however, sometimes the US gov is the plaintiff, and the plaintiff winning is pro-development. these are hand-coded by Maggie. 
+    # however, sometimes the US gov is the plaintiff. generally in these cases we'll assume that plaintiff/US gov winning is pro development (need to flip the pro-development score). but there are also a couple places where the gov/plaintiff losing, and non-gov defendant winning, is pro-development (ultimately no change to pro-development score). 
     usgov_pl_df = pd.read_csv(USGOV_PL_PATH, encoding = "latin-1") # utf-8 encoding doesn't work for some reason (can't decode byte 0xd5 in position 47954)
+
+    # get everything where the US government is the plaintiff. ignore the stuff Maggie says to drop from analysis. don't touch the stuff where gov losing is pro-development. 
     opinion_ids_to_flip = usgov_pl_df.loc[
-            ((usgov_pl_df["include_in_analysis"] == 1) & (usgov_pl_df["gov_losing_as_pro_dev"] == 1)),
+            ((usgov_pl_df["include_in_analysis"] == 1) & (usgov_pl_df["gov_losing_as_pro_dev"] != 1)),
             "opinion_id"
         ].unique()
     # flip the mapping for these specific cases 
@@ -636,7 +672,7 @@ def infer_prevailing_party(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def clean_courtlistener_outcomes():
+def clean_llm_outcomes():
     """
     Get prevailing party and univariate scores, then save to CSV.
     """
@@ -644,7 +680,7 @@ def clean_courtlistener_outcomes():
     cl_df = infer_prevailing_party(cl_df)
 
     # reorder columns
-    cl_df = cl_df[["opinion_id", "district_outcome", "disposition", "prevailing_party", "district_score", "disposition_score", "prevailing_score", "model_id"]]
+    cl_df = cl_df[["opinion_id", "district_outcome", "disposition", "prevailing_party", "district_score", "disposition_score", "prevailing_score", "pro_dev_district_score", "pro_dev_prevailing_score", "model_id"]]
 
     # save to CSV
     LLM_OPINION_CLF_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -653,9 +689,9 @@ def clean_courtlistener_outcomes():
     return cl_df
 
 
-def clean_courtlistener_judges() -> pd.DataFrame:
+def clean_llm_judges() -> pd.DataFrame:
     """
-    Clean judge names: extract last names, extract first three judges from each sequence, and save to CSV.
+    Clean judge data extracted via LLM: extract last names, extract first three judges from each sequence, and save to CSV.
 
     Returns:
         Cleaned dataframe with normalized judge columns and added columns for panel_judge_1/2/3 and author_judge_1/2/3.
@@ -670,23 +706,10 @@ def clean_courtlistener_judges() -> pd.DataFrame:
     df["per_curiam"] = (author_values == "PER CURIAM").astype(int)
 
     # split the semicolon-delimited string into list of judges
-    panel_extracted = df["panel_judges"].fillna("").astype(str).str.split("; ")
-    author_extracted = df["opinion_authors"].fillna("").astype(str).str.split("; ")
-
+    panel_extracted = panel_values.str.split("; ")
+    author_extracted = author_values.str.split("; ")
+    
     # pull just the last name of each judge
-    def _extract_last_name(name: str) -> str:
-        name = str(name).strip()
-        if not name:
-            return ""
-        if "," in name: # (last, first) format  
-            return name.split(",")[0].strip()
-        else:
-            tokens = [t for t in re.split(r"\s+", name) if t] # (first (middle) last) format
-            return tokens[-1] if tokens else ""
-
-    def _extract_last_names_from_list(names):
-        return [_extract_last_name(name) for name in names if str(name).strip()]
-
     panel_extracted = panel_extracted.apply(_extract_last_names_from_list)
     author_extracted = author_extracted.apply(_extract_last_names_from_list)
 
@@ -707,6 +730,74 @@ def clean_courtlistener_judges() -> pd.DataFrame:
     LLM_JUDGES_CLF_PATH.parent.mkdir(parents=True, exist_ok=True)
     df.to_csv(LLM_JUDGES_CLF_PATH, index=False)
     print(f"Saved cleaned CourtListener judges to {LLM_JUDGES_CLF_PATH}")
+    return df
+
+
+def clean_courtlistener_judges(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Clean judge data that already existed in CourtListener.
+
+    Parse the single concatenated judge string into separate columns and keep
+    CourtListener-derived judge columns distinct from LLM-derived columns.
+
+    Args:
+        df: Cluster metadata dataframe containing CourtListener judge text in the "judge" column.
+
+    Returns:
+        Dataframe with added columns:
+        `cl_judges`, `cl_judge_1`, `cl_judge_2`, `cl_judge_3`, 
+        and `cl_per_curiam`.
+    """
+    assert "judge" in df.columns, "'judge' column not found in input CSV"
+    df = df.copy()
+
+    # standardize (all caps, strip whitespace)
+    judge_values = df["judge"].fillna("").astype(str).str.strip().str.upper()
+    df["cl_judges"] = judge_values
+
+    # normalize "and" variants (Oxford comma and bare "and")
+    judge_values = judge_values.replace(", AND ", ", ").replace(" AND ", ", ")
+
+    # drop data error 
+    judge_values = judge_values.replace("VIRGINIA STRASSER (ARGUED)", "")
+
+    # handle per curiam cases
+    # (no "en banc" keywords identified in the judge strings)
+    df["cl_per_curiam"] = judge_values.str.contains("PER CURIAM", regex=False).astype(int)
+    judge_values = judge_values.replace("PER CURIAM", "")
+
+
+    role_label_tokens = {
+        "CIRCUIT JUDGE", "CIRCUIT JUDGES",
+        "CHIEF JUDGE", "CHIEF JUDGES",
+        "DISTRICT JUDGE", "DISTRICT JUDGES",
+        "SENIOR CIRCUIT JUDGE",
+        "SENIOR DISTRICT JUDGE",
+        "SENIOR JUDGE", 
+        "'SENIOR" # edge case error, manually identified
+    }
+    suffix_tokens = {"II", "III", "IV", "V", "JR", "SR"}
+
+    def _parse_judge_string(s):
+        if not s:
+            return []
+        tokens = [t.strip() for t in s.split(", ") if t.strip()]
+        last_names = []
+        for token in tokens:
+            if token in role_label_tokens: # drop "chief judge", etc. type labels
+                continue
+            if token.replace(".", "") in suffix_tokens: # drop suffix tokens
+                continue
+            last_name = _extract_last_name(token)
+            if last_name:
+                last_names.append(last_name)
+        return last_names
+
+    judges_extracted = judge_values.apply(_parse_judge_string)
+    df["cl_judge_1"] = judges_extracted.str[0].fillna("")
+    df["cl_judge_2"] = judges_extracted.str[1].fillna("")
+    df["cl_judge_3"] = judges_extracted.str[2].fillna("")
+
     return df
 
 
@@ -790,8 +881,8 @@ def clean_courtlistener_clusters_main():
         output_path=str(COURTLISTENER_CLUSTER_CLEANED_PATH)
     )
 
-    clean_courtlistener_outcomes() # save a copy of the LLM-coded outcomes and adds a column for prevailing party 
-    clean_courtlistener_judges() # save a cleaned copy of LLM-coded judges data
+    clean_llm_outcomes() # save a copy of the LLM-coded outcomes and adds a column for prevailing party 
+    clean_llm_judges() # save a cleaned copy of LLM-coded judges data
 
     # Merge LLM-coded outcomes and judges with cluster metadata
     merge_cluster_metadata_w_llm_features(
