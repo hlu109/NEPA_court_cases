@@ -49,17 +49,6 @@ def compute_outcome_performance(y_true: pd.Series, y_pred: pd.Series) -> dict:
     Compute accuracy and macro-averaged precision/recall/F1.
     """
     df = pd.DataFrame({"y_true": y_true, "y_pred": y_pred}).dropna()
-    if df.empty:
-        return {
-            "n": 0,
-            "accuracy": np.nan,
-            "macro_precision": np.nan,
-            "macro_recall": np.nan,
-            "macro_f1": np.nan,
-            "micro_precision": np.nan,
-            "micro_recall": np.nan,
-            "micro_f1": np.nan,
-        }
 
     accuracy = accuracy_score(df["y_true"], df["y_pred"])
     macro_precision, macro_recall, macro_f1, _ = precision_recall_fscore_support(
@@ -168,13 +157,6 @@ def compute_judge_iou_metrics(eval_df: pd.DataFrame) -> dict:
     pred_sets = _judge_set_from_columns(pair_df, judge_pred_cols)
     judge_eval_df = pd.DataFrame({"true_set": true_sets, "pred_set": pred_sets})
 
-    if judge_eval_df.empty:
-        return {
-            "n": 0,
-            "mean_iou": np.nan,
-            "median_iou": np.nan,
-            "exact_set_match_rate": np.nan,
-        }
 
     judge_eval_df["jaccard"] = judge_eval_df.apply(
         lambda r: _jaccard_similarity(r["true_set"], r["pred_set"]), axis=1
@@ -269,6 +251,7 @@ def evaluate_courtlistener_judges() -> tuple[pd.DataFrame, pd.DataFrame]:
         "panel_judge_2",
         "panel_judge_3",
         "per_curiam",
+        "file_source_indicator",
     ]].rename(columns={
         "panel_judge_1": "panel_judge_1_pred",
         "panel_judge_2": "panel_judge_2_pred",
@@ -291,6 +274,10 @@ def evaluate_courtlistener_judges() -> tuple[pd.DataFrame, pd.DataFrame]:
         | merged_df["cl_per_curiam"].fillna(0).astype(int).eq(1)
     )
     diagnostics_df = merged_df[availability_mask].copy()
+    missing_pred_mask = diagnostics_df["panel_judge_1_pred"].isna(
+    ) & diagnostics_df["panel_judge_2_pred"].isna() & diagnostics_df["panel_judge_3_pred"].isna()
+    missing_predictions = int(missing_pred_mask.sum())
+    diagnostics_df = diagnostics_df[~missing_pred_mask].copy()
 
     true_sets = _judge_set_from_columns(diagnostics_df, cl_true_cols)
     pred_sets = _judge_set_from_columns(diagnostics_df, pred_cols)
@@ -330,6 +317,7 @@ def evaluate_courtlistener_judges() -> tuple[pd.DataFrame, pd.DataFrame]:
         "median_iou": float(diagnostics_df["judge_jaccard_score"].median()),
         "exact_set_match_rate": float((true_sets == pred_sets).mean()),
         "cl_per_curiam_accuracy": per_curiam_accuracy,
+        "missing_predictions": missing_predictions,
     }])
 
     return metrics_df, diagnostics_df

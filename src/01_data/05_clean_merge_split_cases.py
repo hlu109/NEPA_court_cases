@@ -72,23 +72,50 @@ def _normalize_dash_characters(text: str) -> str:
 
     return text
 
+
+def _standardize_judge_string(judge_series: pd.Series) -> pd.Series:
+    """ 
+    Standardize judge text.
+    """
+    judge_string = judge_series.fillna("").astype(str).str.strip().str.upper()
+    return judge_string
+    
+
 def _extract_last_name(name: str) -> str:
     name = str(name).strip()
     if not name:
         return ""
     suffixes = {"JR", "SR", "II", "III", "IV", "V"}
+    last_name = ""
     # handle "last, first" format as well as "first middle last, suffix" format
     if "," in name:  
         comma_parts = [part.strip() for part in name.split(",")]
         # check if the second part matches a suffix (after dropping the period)
         if len(comma_parts) > 1 and comma_parts[1].replace(".", "").upper() in suffixes:
             tokens = [t for t in re.split(r"\s+", comma_parts[0]) if t]
-            return tokens[-1] if tokens else ""
-        return comma_parts[0]
+            last_name = tokens[-1] if tokens else ""
+        else:
+            last_name = comma_parts[0]
     else:
         # "first middle last" format
         tokens = [t for t in re.split(r"\s+", name) if t] # (first (middle) last) format
-        return tokens[-1] if tokens else ""
+        last_name = tokens[-1] if tokens else ""
+
+    # handle character encoding issues
+    # e.g. ALARCÃ“N -> ALARCÓN, DUHÃ‰ -> DUHÉ
+    last_name = last_name.replace("Ã“", "O")
+    last_name = last_name.replace("Ã‰", "E")
+
+    # remove any non-alphabetic characters, including apostrophes
+    # (apostrophes are also causing character encoding issues sometimes - easier to just remove them)
+    last_name = re.sub(r"[^A-Za-z]", "", last_name) 
+
+    # manually correct typos 
+    last_name = last_name.replace("TYMKOVCH", "TYMKOVICH")
+    if last_name == "SCANNLAIN": # can't use .replace() since it also will match to substrings and turn "OSCANNLAIN" into "OOSCANNLAIN"
+        last_name = "OSCANNLAIN"
+
+    return last_name
 
 def _extract_last_names_from_list(names):
     return [_extract_last_name(name) for name in names]
@@ -193,9 +220,9 @@ def clean_adelglicks_judges(df: pd.DataFrame) -> pd.DataFrame:
     })
 
     # normalize 
-    df["panel_judge_1"] = df["panel_judge_1"].fillna("").astype(str).str.strip().str.upper()
-    df["panel_judge_2"] = df["panel_judge_2"].fillna("").astype(str).str.strip().str.upper()
-    df["panel_judge_3"] = df["panel_judge_3"].fillna("").astype(str).str.strip().str.upper()
+    df["panel_judge_1"] = _standardize_judge_string(df["panel_judge_1"])
+    df["panel_judge_2"] = _standardize_judge_string(df["panel_judge_2"])
+    df["panel_judge_3"] = _standardize_judge_string(df["panel_judge_3"])
 
     # extract last name 
     df["panel_judge_1"] = df["panel_judge_1"].apply(_extract_last_name)
@@ -578,6 +605,8 @@ def clean_cluster_metadata(cluster_metadata_path: str,
 
     # Clean judge names 
     cluster_df = clean_courtlistener_judges(cluster_df)
+    # drop the "judge" column - this is the unclean and often incorrect version 
+    cluster_df = cluster_df.drop(columns=["judge"])
 
     # Save cleaned data
     output_path = Path(output_path)
@@ -699,11 +728,14 @@ def clean_llm_judges() -> pd.DataFrame:
     df = pd.read_csv(LLM_JUDGES_CLF_RAW_PATH)
 
     # normalize judge names
-    panel_values = df["panel_judges"].fillna("").astype(str).str.strip().str.upper()
-    author_values = df["opinion_authors"].fillna("").astype(str).str.strip().str.upper()
+    panel_values = _standardize_judge_string(df["panel_judges"])
+    author_values = _standardize_judge_string(df["opinion_authors"])
+
     # identify en banc and per curiam cases
-    df["en_banc"] = (panel_values == "EN BANC").astype(int)
-    df["per_curiam"] = (author_values == "PER CURIAM").astype(int)
+    df["en_banc"] = panel_values.str.contains("EN BANC", regex=False).astype(int)
+    df["per_curiam"] = author_values.str.contains("PER CURIAM", regex=False).astype(int)
+    panel_values = panel_values.str.replace("EN BANC", "", regex=False)
+    author_values = author_values.str.replace("PER CURIAM", "", regex=False)
 
     # split the semicolon-delimited string into list of judges
     panel_extracted = panel_values.str.split("; ")
@@ -722,9 +754,6 @@ def clean_llm_judges() -> pd.DataFrame:
     df["author_judge_1"] = author_extracted.str[0].fillna("")
     df["author_judge_2"] = author_extracted.str[1].fillna("")
     df["author_judge_3"] = author_extracted.str[2].fillna("")
-
-    df.loc[df["en_banc"] == 1, ["panel_judge_1", "panel_judge_2", "panel_judge_3"]] = ""
-    df.loc[df["per_curiam"] == 1, ["author_judge_1", "author_judge_2", "author_judge_3"]] = ""
 
     # save to CSV
     LLM_JUDGES_CLF_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -752,29 +781,34 @@ def clean_courtlistener_judges(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
 
     # standardize (all caps, strip whitespace)
-    judge_values = df["judge"].fillna("").astype(str).str.strip().str.upper()
-    df["cl_judges"] = judge_values
+    judge_values = _standardize_judge_string(df["judge"])
 
     # normalize "and" variants (Oxford comma and bare "and")
-    judge_values = judge_values.replace(", AND ", ", ").replace(" AND ", ", ")
+    judge_values = judge_values.str.replace(", AND ", ", ").str.replace(" AND ", ", ")
 
     # drop data error 
-    judge_values = judge_values.replace("VIRGINIA STRASSER (ARGUED)", "")
+    judge_values = judge_values.str.replace("VIRGINIA STRASSER (ARGUED)", "")
 
     # handle per curiam cases
     # (no "en banc" keywords identified in the judge strings)
     df["cl_per_curiam"] = judge_values.str.contains("PER CURIAM", regex=False).astype(int)
-    judge_values = judge_values.replace("PER CURIAM", "")
+    judge_values = judge_values.str.replace("PER CURIAM", "", regex=False)
 
+    df["cl_judges"] = judge_values
 
-    role_label_tokens = {
+    token_errors = {
         "CIRCUIT JUDGE", "CIRCUIT JUDGES",
         "CHIEF JUDGE", "CHIEF JUDGES",
         "DISTRICT JUDGE", "DISTRICT JUDGES",
         "SENIOR CIRCUIT JUDGE",
         "SENIOR DISTRICT JUDGE",
         "SENIOR JUDGE", 
-        "'SENIOR" # edge case error, manually identified
+        "'SENIOR",
+        "CONCURRENC",
+        "CONCURRENCE",
+        "CONCURRENCES",
+        "SUPREME",
+        "DISSENT"
     }
     suffix_tokens = {"II", "III", "IV", "V", "JR", "SR"}
 
@@ -784,7 +818,7 @@ def clean_courtlistener_judges(df: pd.DataFrame) -> pd.DataFrame:
         tokens = [t.strip() for t in s.split(", ") if t.strip()]
         last_names = []
         for token in tokens:
-            if token in role_label_tokens: # drop "chief judge", etc. type labels
+            if token in token_errors: # drop erroneous tokens 
                 continue
             if token.replace(".", "") in suffix_tokens: # drop suffix tokens
                 continue
