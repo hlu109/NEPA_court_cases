@@ -279,9 +279,9 @@ def process_cases(genai_client,
                                            log_dir=log_dir,
                                            identifier=identifier,
                                            debug=debug)
-                success = True
 
                 if result:
+                    success = True
                     runtime_metadata = {
                         "opinion_id": case_id,
                         "file_source_indicator": file_source_indicator,
@@ -343,6 +343,8 @@ def process_cases(genai_client,
 
             # TODO: add error handling for other errors
             # (EXCEPTION occurred (non-retryable): 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'Resource exhausted. Please try again later. Please refer to https://cloud.google.com/vertex-ai/generative-ai/docs/error-code-429 for more details.', 'status': 'RESOURCE_EXHAUSTED'}}
+            # rate limits are per minute and per day. first try to wait a minute, if that doesn't work, then wait until the end of the day (compute how much time left). 
+            # it would be good to also send an email... if we hit the day rate limit then we screwed up and should downgrade to a lower model 
 
         if not success:
             error_count += 1
