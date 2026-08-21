@@ -3,6 +3,8 @@
 
 # data files 
 /data/*
+/data (DEPRECATED)/*
+/output/*
 
 # generated outputs 
 /outputs/*
