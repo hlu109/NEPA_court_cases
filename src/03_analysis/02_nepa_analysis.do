@@ -2,12 +2,17 @@
 	This script analyzes the NEPA cases. 
 ==============================================================================*/
 * Set user
-local user = c(username)
-if "`user'" == "agupta011" {
+global user = c(username)
+if "$user" == "agupta011" {
     global dropbox "/Users/agupta011/Dropbox/NEPA_court_cases"
 }
-else if "`user'" == "hl2266" {
+else if "$user" == "hl2266" {
     global dropbox "C:/Users/hl2266/YLS Dropbox/Hannah Lu/shared/NEPA Court Cases 2"
+    global overleaf_dir "C:/Users/hl2266/project_dockers/nepa/Overleaf/NEPA Court Cases Overleaf"
+    global overleaf_tabdir "${overleaf_dir}/Tables"
+    global overleaf_figdir "${overleaf_dir}/Figures"
+    cap mkdir "$overleaf_tabdir"
+    cap mkdir "$overleaf_figdir"
 }
 * add your username and paths here as an else if condition
 else {
@@ -16,10 +21,32 @@ else {
 
 global data_dir "${dropbox}/Data"
 global output_dir "${dropbox}/Outputs"
+global tabdir "${output_dir}/Tables"
+global figdir "${output_dir}/Figures"
+
+cap mkdir "$output_dir"
+cap mkdir "$tabdir"
+cap mkdir "$figdir"
 
 * ==============================================================================
+* helper function to streamline with overleaf 
+cap program drop copy_tab_to_overleaf
+program define copy_tab_to_overleaf
+	args fname
+	if "$user" == "hl2266" {
+		copy "$tabdir/`fname'" "$overleaf_tabdir/`fname'", replace
+	}
+end
+cap program drop copy_fig_to_overleaf
+program define copy_fig_to_overleaf
+	args fname
+	if "$user" == "hl2266" {
+		copy "$figdir/`fname'" "$overleaf_figdir/`fname'", replace
+	}
+end
 
-insheet using "${data_dir}/Intermediate/Outcome Coding Predictions/courtlistener_metadata_with_LLM_outcomes.csv", clear 
+* ==============================================================================
+insheet using "${data_dir}/Intermediate/Feature Classification Predictions/courtlistener_metadata_w_extracted_features.csv", clear
 gen int year = real(substr(datefiled, 1, 4))
 
 
@@ -45,8 +72,12 @@ encode court, gen(numeric_court)
 
 /* Some Simple Summary Stats*/
 * judge missing
-gen judge_miss = judge == ""
-tab judge_miss 
+rename panel_judge_count judges_on_case
+tab judges_on_case, mi
+replace judges_on_case = 0 if mi(judges_on_case)
+tab judges_on_case, mi
+gen judge_miss = (judges_on_case == 0)
+tab judge_miss
 
 * party identities
 tab party1 if total_cases_p1 > 10, sort
@@ -61,7 +92,8 @@ preserve
         bar(1, color(maroon)) ///
         blabel(bar, size(vsmall) format(%9.0f)) ///
         scheme(s2color) graphregion(color(white))
-    graph export "${output_dir}/plaintiff_bar.png", replace width(1200)
+    graph export "${figdir}/plaintiff_bar.png", replace width(1200)
+    copy_fig_to_overleaf "plaintiff_bar.png"
 restore
 
 
@@ -78,21 +110,16 @@ preserve
         bar(1, color(maroon)) ///
         blabel(bar, size(vsmall) format(%9.0f)) ///
         scheme(s2color) graphregion(color(white))
-    graph export "${output_dir}/defendant_bar.png", replace width(1200)
+    graph export "${figdir}/defendant_bar.png", replace width(1200)
+    copy_fig_to_overleaf "defendant_bar.png"
 restore
 
 * ============================================================
-* Step 1: Split the judge string into separate judges
+* Step 1: Set aside cases with no judges identified (to append back after judge processing)
 * ============================================================
 gen case_id = _n
-gen byte no_judge = missing(judge) | judge == ""
+gen byte no_judge = judge_miss
 
-gen n_judges = length(judge) - length(subinstr(judge, ",", "", .)) + 1
-replace n_judges = 0 if no_judge
-qui sum n_judges
-local maxj = r(max)
-
-* Set aside cases with no judge info — will append back after judge processing
 preserve
     keep if no_judge
     tempfile no_judge_cases
@@ -100,37 +127,22 @@ preserve
 restore
 drop if no_judge
 
-rename judge judge_orig
-
-forvalues j = 1/`maxj' {
-    gen jname`j' = strtrim(word(subinstr(judge_orig, ",", " ", .), `j'))
-}
-
 * ============================================================
 * Step 2: Reshape to judge-level
 * ============================================================
-reshape long jname, i(case_id) j(judge_num)
-rename jname judge_name
+reshape long panel_judge_, i(case_id) j(judge_num)
+rename panel_judge_ judge_name
 drop if missing(judge_name) | judge_name == ""
 
 * ============================================================
-* Step 3: Drop non-judge observations
+* Step 3: Count cases per judge
 * ============================================================
-foreach w in Concurrenc Supreme Dissent "Per Curiam" Circuit Judges {
-    drop if strpos(judge_name, "`w'") > 0
-}
-* Also drop short/common words that aren't judge names
-drop if inlist(judge_name, "and", "And", "AND")
+bysort judge_name: gen case_count_per_judge = _N
 
 * ============================================================
-* Step 4: Count observations per judge
+* Step 4: Create binary indicator for judges with 10+ observations
 * ============================================================
-bysort judge_name: gen judge_count = _N
-
-* ============================================================
-* Step 5: Create binary indicator for judges with 10+ observations
-* ============================================================
-levelsof judge_name if judge_count >= 10, local(freq_judges)
+levelsof judge_name if case_count_per_judge >= 10, local(freq_judges)
 foreach j of local freq_judges {
     local vname = subinstr("`j'", " ", "_", .)
     local vname = subinstr("`vname'", ".", "", .)
@@ -139,24 +151,9 @@ foreach j of local freq_judges {
 }
 
 * ============================================================
-* Step 6: Leave-one-out judge strictness measures
+* Step 5: Leave-one-out judge strictness measures
 * ============================================================
-
-* --- Create univariate measures ---
-gen double district_score = .
-replace district_score = 0   if district_outcome == "defendant"
-replace district_score = 0.5 if district_outcome == "mixed"
-replace district_score = 1   if district_outcome == "plaintiff"
-
-gen double disposition_score = .
-replace disposition_score = 0   if disposition == "affirm"
-replace disposition_score = 0.5 if disposition == "mixed"
-replace disposition_score = 1   if disposition == "reverse"
-
-gen double prevailing_score = .
-replace prevailing_score = 0   if prevailing_party == "defendant"
-replace prevailing_score = 0.5 if prevailing_party == "mixed"
-replace prevailing_score = 1   if prevailing_party == "plaintiff"
+* district_score, disposition_score, and prevailing_score are computed upstream in the data and read in directly
 
 * --- Compute leave-one-out means relative to court average ---
 foreach var in district_score disposition_score prevailing_score {
@@ -175,17 +172,17 @@ foreach var in district_score disposition_score prevailing_score {
 * --- Create strictness versions at two cutoffs ---
 foreach var in district_score disposition_score prevailing_score {
     gen double strictness10_`var' = strictness_`var'
-    replace strictness10_`var' = . if judge_count < 10
+    replace strictness10_`var' = . if case_count_per_judge < 10
 
     gen double strictness20_`var' = strictness_`var'
-    replace strictness20_`var' = . if judge_count < 20
+    replace strictness20_`var' = . if case_count_per_judge < 20
 }
 
 * --- Top 10 and Bottom 10 judges by prevailing party strictness ---
 preserve
     bysort judge_name: keep if _n == 1
-    keep if !missing(strictness_prevailing_score) & judge_count >= 10
-    keep judge_name judge_count strictness_prevailing_score
+    keep if !missing(strictness_prevailing_score) & case_count_per_judge >= 10
+    keep judge_name case_count_per_judge strictness_prevailing_score
     gsort -strictness_prevailing_score
     gen rank = _n
     local N = _N
@@ -198,7 +195,8 @@ preserve
         bar(1, color(navy)) ///
         blabel(bar, size(vsmall) format(%5.3f)) ///
         scheme(s2color) graphregion(color(white))
-    graph export "${output_dir}/top10_judges.png", replace width(1200)
+    graph export "${figdir}/top10_judges.png", replace width(1200)
+    copy_fig_to_overleaf "top10_judges.png"
 
     * Bottom 10 defendant-leaning
     graph hbar strictness_prevailing_score if rank > `N' - 10, ///
@@ -208,7 +206,8 @@ preserve
         bar(1, color(maroon)) ///
         blabel(bar, size(vsmall) format(%5.3f)) ///
         scheme(s2color) graphregion(color(white))
-    graph export "${output_dir}/bottom10_judges.png", replace width(1200)
+    graph export "${figdir}/bottom10_judges.png", replace width(1200)
+    copy_fig_to_overleaf "bottom10_judges.png"
 restore
 
 
@@ -230,9 +229,9 @@ eststo jnc_dist: reg district_score    strictness_district_score i.year i.numeri
 eststo jnc_disp: reg disposition_score strictness_disposition_score i.year i.numeric_court
 
 * --- No cutoff, weighted by judge caseload ---
-eststo jwt_prev: reg prevailing_score  strictness_prevailing_score   i.year i.numeric_court [aw=judge_count]
-eststo jwt_dist: reg district_score    strictness_district_score   i.year i.numeric_court [aw=judge_count]
-eststo jwt_disp: reg disposition_score strictness_disposition_score i.year i.numeric_court [aw=judge_count]
+eststo jwt_prev: reg prevailing_score  strictness_prevailing_score   i.year i.numeric_court [aw=case_count_per_judge]
+eststo jwt_dist: reg district_score    strictness_district_score   i.year i.numeric_court [aw=case_count_per_judge]
+eststo jwt_disp: reg disposition_score strictness_disposition_score i.year i.numeric_court [aw=case_count_per_judge]
 
 * --- Table: Judge-level, by outcome ---
 foreach dep in prev dist disp {
@@ -241,7 +240,7 @@ foreach dep in prev dist disp {
     if "`dep'" == "disp" local deplab "Disposition"
 
     esttab j10_`dep' j20_`dep' jnc_`dep' jwt_`dep' ///
-        using "${output_dir}/judge_level_`dep'.tex", replace ///
+        using "${tabdir}/judge_level_`dep'.tex", replace ///
         booktabs label se star(* 0.10 ** 0.05 *** 0.01) ///
         nomtitles ///
         mgroups("10 Cutoff" "20 Cutoff" "No Cutoff" "Weighted", ///
@@ -253,11 +252,12 @@ foreach dep in prev dist disp {
         nonotes addnotes("Standard errors in parentheses." ///
             "Weighted specification uses analytic weights equal to judge caseload." ///
             "\sym{*} \(p<0.10\), \sym{**} \(p<0.05\), \sym{***} \(p<0.01\)")
+    copy_tab_to_overleaf "judge_level_`dep'.tex"
 }
 
 
 * ============================================================
-* Step 7: Roll up to case level
+* Step 6: Roll up to case level
 * ============================================================
 
 * Average strictness across judges on the panel for each case
@@ -267,10 +267,11 @@ foreach var in district_score disposition_score prevailing_score {
     bysort case_id: egen double c_strict_`var'   = mean(strictness_`var')
 }
 
-* Precision weight: minimum judge_count across panel judges
-bysort case_id: egen double min_judge_count = min(judge_count)
+* Precision weight: minimum case_count_per_judge across panel judges
+bysort case_id: egen double min_judge_case_count = min(case_count_per_judge)
 
-bysort case_id: gen number_of_judges = _N
+* use judges_on_case rather than the reshaped row count, since upstream data processing truncates panels above 3 judges
+gen number_of_judges = judges_on_case
 
 duplicates drop case_id, force
 
@@ -293,7 +294,8 @@ histogram number_of_judges, discrete frequency ///
     title("Distribution of Panel Size") ///
     color(navy) ///
     scheme(s2color) graphregion(color(white))
-graph export "${output_dir}/panel_size_hist.png", replace width(1200)
+graph export "${figdir}/panel_size_hist.png", replace width(1200)
+copy_fig_to_overleaf "panel_size_hist.png"
 
 
 
@@ -310,9 +312,9 @@ eststo c20_disp: reg disposition_score c_strict20_disposition_score i.year i.num
 eststo c20_dist: reg district_score    c_strict20_district_score    i.year i.numeric_court
 
 * --- No cutoff, weighted by min panel judge caseload ---
-eststo cwt_prev: reg prevailing_score  c_strict_prevailing_score i.year i.numeric_court [aw=min_judge_count]
-eststo cwt_disp: reg disposition_score c_strict_disposition_score i.year i.numeric_court [aw=min_judge_count]
-eststo cwt_dist: reg district_score    c_strict_district_score    i.year i.numeric_court [aw=min_judge_count]
+eststo cwt_prev: reg prevailing_score  c_strict_prevailing_score i.year i.numeric_court [aw=min_judge_case_count]
+eststo cwt_disp: reg disposition_score c_strict_disposition_score i.year i.numeric_court [aw=min_judge_case_count]
+eststo cwt_dist: reg district_score    c_strict_district_score    i.year i.numeric_court [aw=min_judge_case_count]
 
 * --- Table: Case-level, by outcome ---
 foreach dep in prev dist disp {
@@ -321,7 +323,7 @@ foreach dep in prev dist disp {
     if "`dep'" == "disp" local deplab "Disposition"
 
     esttab c10_`dep' c20_`dep' cwt_`dep' ///
-        using "${output_dir}/case_level_`dep'.tex", replace ///
+        using "${tabdir}/case_level_`dep'.tex", replace ///
         booktabs label se star(* 0.10 ** 0.05 *** 0.01) ///
         nomtitles ///
         mgroups("10 Cutoff" "20 Cutoff" "Weighted", ///
@@ -333,4 +335,5 @@ foreach dep in prev dist disp {
         nonotes addnotes("Standard errors in parentheses." ///
             "Weighted specification uses analytic weights equal to minimum judge caseload on the panel." ///
             "\sym{*} \(p<0.10\), \sym{**} \(p<0.05\), \sym{***} \(p<0.01\)")
+    copy_tab_to_overleaf "case_level_`dep'.tex"
 }
