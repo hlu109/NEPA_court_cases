@@ -60,8 +60,7 @@ CL_TRAIN_PREDICTIONS_PATH = FTR_PREDICTIONS_DIR / "CL_train_predictions.csv"
 LLM_OPINION_CLF_RAW_PATH = INTERMEDIATE_DATA_DIR / "gemini_output/opinions_20251219_110552_coding_20260102_165440/opinions_20251219_110552_coding_20260102_165440.csv"
 LLM_OPINION_CLF_PATH = FTR_PREDICTIONS_DIR / "LLM_case_outcome_coding.csv"
 
-# TODO: update with timestamped paths after gemini coding finished
-LLM_JUDGES_CLF_RAW_PATH = INTERMEDIATE_DATA_DIR / "gemini_output/opinions_20251219_110552_judges_20260428_141959/opinions_20251219_110552_judges_20260428_141959.csv"
+LLM_JUDGES_CLF_RAW_PATH = INTERMEDIATE_DATA_DIR / "gemini_output/opinions_20251219_110552_judges_20260429_111513/opinions_20251219_110552_judges_20260429_111513.csv"
 LLM_JUDGES_CLF_PATH = FTR_PREDICTIONS_DIR / "LLM_judge_coding.csv"
 
 

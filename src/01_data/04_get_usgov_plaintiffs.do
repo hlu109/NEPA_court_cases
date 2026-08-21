@@ -5,15 +5,19 @@
 * Set user
 local user = c(username)
 if "`user'" == "hl2266" {
-    global data_dir "C:/Users/hl2266/YLS Dropbox/Hannah Lu/shared/NEPA Court Cases/Data"
-    global output_dir "C:/Users/hl2266/YLS Dropbox/Hannah Lu/shared/NEPA Court Cases/Outputs"
+    global dropbox "C:/Users/hl2266/YLS Dropbox/Hannah Lu/shared/NEPA Court Cases 2"
+}
+else if "`user'" == "agupta011" {
+    global dropbox "/Users/agupta011/Dropbox/NEPA_court_cases"
 }
 * add your username and paths here as an else if condition
 else {
-	 display as error "Set your user"
+    display as error "Set your user"
 }
-// global data_dir "/Users/agupta011/Dropbox/Data"
-// global output_dir "/Users/agupta011/Dropbox/NEPA_court_cases/output"
+
+global data_dir "${dropbox}/Data"
+global output_dir "${dropbox}/Outputs"
+
 * ==============================================================================
 
 insheet using "${data_dir}/Intermediate/Outcome Coding Predictions/courtlistener_metadata_with_LLM_outcomes.csv", clear 

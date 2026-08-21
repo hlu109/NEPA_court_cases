@@ -1,5 +1,23 @@
-global data_dir "/Users/agupta011/Dropbox/Data"
-global output_dir "/Users/agupta011/Dropbox/NEPA_court_cases/output"
+/*==============================================================================
+	This script analyzes the NEPA cases. 
+==============================================================================*/
+* Set user
+local user = c(username)
+if "`user'" == "agupta011" {
+    global dropbox "/Users/agupta011/Dropbox/NEPA_court_cases"
+}
+else if "`user'" == "hl2266" {
+    global dropbox "C:/Users/hl2266/YLS Dropbox/Hannah Lu/shared/NEPA Court Cases 2"
+}
+* add your username and paths here as an else if condition
+else {
+    display as error "Set your user"
+}
+
+global data_dir "${dropbox}/Data"
+global output_dir "${dropbox}/Outputs"
+
+* ==============================================================================
 
 insheet using "${data_dir}/Intermediate/Outcome Coding Predictions/courtlistener_metadata_with_LLM_outcomes.csv", clear 
 gen int year = real(substr(datefiled, 1, 4))
